@@ -273,6 +273,7 @@
     <string name="meta_ai_new">Nuova conversazione</string>
     <string name="meta_ai_remembered">Ricordato · %1$s</string>
     <string name="meta_ai_no_answer">Nessuna risposta · %1$s</string>
+    <string name="meta_ai_on_glasses">Fatto dagli occhiali</string>
     <string name="meta_ai_too_late">Risposta arrivata quando gli occhiali erano già oltre</string>
     <string name="meta_ai_phone">Telefono</string>
     <string name="meta_ai_live_ai">Live AI</string>
@@ -543,6 +544,8 @@
     <string name="access_location_always_why">Così il luogo viene annotato anche con Visor chiusa. Scegli “Consenti sempre”.</string>
     <string name="access_wifi">Wi-Fi nelle vicinanze</string>
     <string name="access_wifi_why">Per le importazioni e la visione live via Wi-Fi Direct.</string>
+    <string name="access_companion">Dispositivo associato</string>
+    <string name="access_companion_why">Così l\'assistente può aprire indicazioni e musica sul telefono anche con Visor in background.</string>
     <string name="access_foot">Se rifiutato per sempre, Android apre invece la pagina di Visor.</string>
 
     <string name="advanced_title">Impostazioni avanzate</string>
@@ -645,6 +648,7 @@
     <string name="onboard_new_key">Qualsiasi altro telefono o app che li aveva li ha persi.</string>
     <string name="onboard_open">Apri Visor</string>
     <string name="onboard_failed">Non configurati</string>
+    <string name="onboard_wrong_owner">Questi occhiali appartengono a un altro account Meta. Accedi con quello che li ha configurati nell\'app Meta AI, oppure ripristina gli occhiali.</string>
     <string name="onboard_failed_untouched">Sugli occhiali non cambia nulla prima dell\'ultimo passo.</string>
     <string name="onboard_try_again">Riprova</string>
     <string name="onboard_choose_again">Scegli di nuovo</string>
@@ -901,4 +905,6 @@
     <string name="hct_failed_tone">Gli occhiali non hanno riprodotto il tono.</string>
     <string name="hct_failed_fit">Gli occhiali non sono riusciti a creare il profilo.</string>
     <string name="hct_retry">Riprova</string>
+    <string name="phone_directions">Indicazioni per %1$s</string>
+    <string name="phone_play">Riproduci %1$s</string>
 </resources>

@@ -274,6 +274,7 @@
     <string name="meta_ai_new">New conversation</string>
     <string name="meta_ai_remembered">Remembered · %1$s</string>
     <string name="meta_ai_no_answer">No answer · %1$s</string>
+    <string name="meta_ai_on_glasses">Done on the glasses</string>
     <string name="meta_ai_too_late">Answered after the glasses had moved on</string>
     <string name="meta_ai_phone">Phone</string>
     <string name="meta_ai_live_ai">Live AI</string>
@@ -544,6 +545,8 @@
     <string name="access_location_always_why">So the place is noted also with Visor closed. Choose “Allow all the time”.</string>
     <string name="access_wifi">Nearby Wi-Fi</string>
     <string name="access_wifi_why">For imports and the live view over Wi-Fi Direct.</string>
+    <string name="access_companion">Companion device</string>
+    <string name="access_companion_why">So the assistant can open directions and music on the phone while Visor is in the background.</string>
     <string name="access_foot">Turned down for good, Android opens Visor\'s own page instead.</string>
 
     <string name="advanced_title">Advanced settings</string>
@@ -646,6 +649,7 @@
     <string name="onboard_new_key">Any other phone or app that held them has lost them.</string>
     <string name="onboard_open">Open Visor</string>
     <string name="onboard_failed">Not set up</string>
+    <string name="onboard_wrong_owner">These glasses belong to another Meta account. Log in with the one that set them up in the Meta AI app, or reset the glasses.</string>
     <string name="onboard_failed_untouched">Nothing on the glasses changes before the last step.</string>
     <string name="onboard_try_again">Try again</string>
     <string name="onboard_choose_again">Choose again</string>
@@ -903,4 +907,6 @@
     <string name="hct_failed_tone">The glasses did not play the tone.</string>
     <string name="hct_failed_fit">The glasses could not make the profile.</string>
     <string name="hct_retry">Try again</string>
+    <string name="phone_directions">Directions to %1$s</string>
+    <string name="phone_play">Play %1$s</string>
 </resources>

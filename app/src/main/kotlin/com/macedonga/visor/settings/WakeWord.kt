@@ -143,16 +143,18 @@ class WakeWordModel @Inject constructor(
         close(open)
     }
 
-    // Not on viewModelScope: leaving clears the model, and the close must still go out.
+    // Not on viewModelScope: leaving clears the model, and the close must still go out. One that did not stays listed.
     private fun close(id: String) {
         lasting.launch {
-            assistant.wakeWord.end(id)
-            prefs.edit().putStringSet(OPEN, prefs.getStringSet(OPEN, null).orEmpty() - id).apply()
+            if (assistant.wakeWord.end(id)) mark(id, open = false)
         }
     }
 
-    private fun opened(id: String) {
-        prefs.edit().putStringSet(OPEN, prefs.getStringSet(OPEN, null).orEmpty() + id).apply()
+    private fun opened(id: String) = mark(id, open = true)
+
+    private fun mark(id: String, open: Boolean) = synchronized(prefs) {
+        val ids = prefs.getStringSet(OPEN, null).orEmpty()
+        prefs.edit().putStringSet(OPEN, if (open) ids + id else ids - id).apply()
     }
 
     override fun onCleared() = leave()
