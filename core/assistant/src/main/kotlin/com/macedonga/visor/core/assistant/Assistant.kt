@@ -121,14 +121,17 @@ class Assistant(
     val notes: SharedFlow<String> = _notes.asSharedFlow()
 
     /** The glasses' custom wake word enrolment, over this session. */
-    val wakeWord = CustomWakeWord { id, body ->
-        val l = link
-        val m0 = l?.m0
-        if (l == null || m0 == null) false
-        else runCatching { sendNetEvent(l, m0, netEvent(id, body)) }
-            .onFailure { say("Custom wake word: event $id did not go: ${it.message}") }
-            .isSuccess
-    }
+    val wakeWord = CustomWakeWord(
+        send = { id, body ->
+            val l = link
+            val m0 = l?.m0
+            if (l == null || m0 == null) false
+            else runCatching { sendNetEvent(l, m0, netEvent(id, body)) }
+                .onFailure { say("Custom wake word: event $id did not go: ${it.message}") }
+                .isSuccess
+        },
+        headset = { ms, note -> headsetTake(context, ms, note) },
+    )
 
     /**
      * A NetEvent onto the session; one bigger than a frame carries goes as a segmented message, a header (1002)

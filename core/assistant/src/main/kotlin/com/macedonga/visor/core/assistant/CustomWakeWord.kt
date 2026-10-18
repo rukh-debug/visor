@@ -24,7 +24,11 @@ data class WakeWordResult(val success: Boolean, val error: String, val wakeword:
  * the recordings in one batch (386), and closes the session (391). The glasses build the model themselves and answer
  * with a result (368); there is no server in it. Thrift fields from the Meta app's schema, 1-based.
  */
-class CustomWakeWord internal constructor(private val send: suspend (Int, ByteArray) -> Boolean) {
+class CustomWakeWord internal constructor(
+    private val send: suspend (Int, ByteArray) -> Boolean,
+    // The glasses' mic as a Bluetooth headset, for when they send no audio over the link.
+    private val headset: suspend (Long, (String) -> Unit) -> ByteArray? = { _, _ -> null },
+) {
     private val _notes = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val notes: SharedFlow<String> = _notes.asSharedFlow()
 
@@ -54,11 +58,17 @@ class CustomWakeWord internal constructor(private val send: suspend (Int, ByteAr
     val level: StateFlow<Float> = _level.asStateFlow()
 
     /**
-     * Record one sample on the glasses' microphone, up to [ms] long: they stream it as Opus on the assistant's stream
-     * channel (header 6106, data 6100, end 6101). The phrase as 16 kHz 16-bit mono PCM with the silence around it
-     * cut, or null when nothing was said or nothing came.
+     * Record one sample on the glasses' microphone, up to [ms] long, as 16 kHz 16-bit mono PCM with the silence around
+     * it cut; null when nothing was said or nothing came. The glasses' own enrolment stream opens but brings no audio to
+     * the phone, so the sample comes from their microphone as a Bluetooth headset, as the Meta app on Android takes it;
+     * the stream is the fallback when there is no headset route.
      */
-    suspend fun record(ms: Long = TAKE_MS): ByteArray? {
+    suspend fun record(ms: Long = TAKE_MS): ByteArray? =
+        runCatching { headset(ms, ::note) }.onFailure { note("Custom wake word: headset take failed: ${it.message}") }.getOrNull()?.let(::speechOf)
+            ?: ownTake(ms)
+
+    /** One sample from the glasses' own stream on the assistant's channel (header 6106, data 6100, end 6101). */
+    private suspend fun ownTake(ms: Long): ByteArray? {
         val request = UUID.randomUUID().toString()
         val t = Take(_level, runCatching { opusDecoder() }.getOrElse { note("Custom wake word: no Opus decoder: ${it.message}"); return null })
         take = t
@@ -81,7 +91,8 @@ class CustomWakeWord internal constructor(private val send: suspend (Int, ByteAr
         when (type) {
             MT_ENROLLMENT_HEADER -> t.header = payload.take(48).joinToString("") { "%02x".format(it) }
             MT_STREAMER_DATA -> for (packet in packetsOf(payload)) t.decode(packet)
-            MT_STREAMER_END -> t.ended.complete(Unit)
+            // The glasses send an empty 6101 right after the header, as the stream opens: only one after audio ends the take.
+            MT_STREAMER_END -> if (t.packets > 0) t.ended.complete(Unit)
         }
     }
 
