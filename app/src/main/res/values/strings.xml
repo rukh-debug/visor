@@ -562,6 +562,9 @@
     <string name="advanced_internal">Internal</string>
     <string name="advanced_internal_note">Not in the Meta app. The glasses read them, but some only matter to Meta\'s own testing.</string>
     <string name="advanced_tools">Tools</string>
+    <string name="advanced_search">Search advanced settings</string>
+    <string name="advanced_search_settings">Settings</string>
+    <string name="advanced_search_more">The best %1$d. Type more to narrow it down.</string>
 
     <string name="backup_title">Back up and restore</string>
     <string name="backup_lede">Every setting in one file: the glasses\' own and Visor\'s.</string>

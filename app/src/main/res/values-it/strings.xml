@@ -561,6 +561,9 @@
     <string name="advanced_internal">Interne</string>
     <string name="advanced_internal_note">Non nell\'app Meta. Gli occhiali le leggono, ma alcune servono solo ai test di Meta.</string>
     <string name="advanced_tools">Strumenti</string>
+    <string name="advanced_search">Cerca nelle impostazioni avanzate</string>
+    <string name="advanced_search_settings">Impostazioni</string>
+    <string name="advanced_search_more">Le %1$d migliori. Scrivi di più per restringere.</string>
 
     <string name="backup_title">Backup e ripristino</string>
     <string name="backup_lede">Ogni impostazione in un file: quelle degli occhiali e quelle di Visor.</string>
