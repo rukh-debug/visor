@@ -11,12 +11,21 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
@@ -293,6 +302,21 @@ fun VisorNav(opens: kotlinx.coroutines.flow.Flow<String>, markAtLaunch: Boolean)
             },
         )
         MarkOverlay(stage)
+        // Debug builds wear their version in the corner, so any screenshot says which build it is.
+        if (BuildConfig.DEBUG) {
+            Text(
+                "debug " + BuildConfig.VERSION_NAME,
+                style = Visor.type.label,
+                color = Visor.colors.textSecondary,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(start = 8.dp, bottom = 8.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Visor.colors.raised.copy(alpha = 0.7f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
       }
     }
 }

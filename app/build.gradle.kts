@@ -6,14 +6,30 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+// "v1.3.2-2-g1f165af" from git describe -> ("1.3.2-dev.2", 10302); ("0.1", 1) without a tag or git.
+val gitVersion: Pair<String, Int> = run {
+    val described = runCatching {
+        providers.exec {
+            commandLine("git", "describe", "--tags", "--long", "--match", "v[0-9]*")
+            isIgnoreExitValue = true
+        }.standardOutput.asText.get().trim()
+    }.getOrDefault("")
+    val m = Regex("""^v(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.]+)?-(\d+)-g[0-9a-f]+$""").find(described)
+        ?: return@run "0.1" to 1
+    val (major, minor, patch, pre, ahead) = m.destructured
+    val name = "$major.$minor.$patch$pre" + if (ahead != "0") "-dev.$ahead" else ""
+    name to major.toInt() * 10_000 + minor.toInt() * 100 + patch.toInt()
+}
+
 android {
     namespace = "com.macedonga.visor"
 
     defaultConfig {
         applicationId = "com.macedonga.visor"
-        // A release build takes both from its tag (.github/workflows/release.yml).
-        versionCode = providers.environmentVariable("VISOR_VERSION_CODE").orNull?.toInt() ?: 1
-        versionName = providers.environmentVariable("VISOR_VERSION_NAME").orNull ?: "0.1"
+        // A release build takes both from its tag (.github/workflows/release.yml); any other build from the last
+        // upstream tag, as release.yml counts it, with how many commits it is past it: 1.3.2, or 1.3.2-dev.2.
+        versionCode = providers.environmentVariable("VISOR_VERSION_CODE").orNull?.toInt() ?: gitVersion.second
+        versionName = providers.environmentVariable("VISOR_VERSION_NAME").orNull ?: gitVersion.first
     }
 
     // The release key comes from the environment: the CI's secrets, or a shell that exports the same names.
