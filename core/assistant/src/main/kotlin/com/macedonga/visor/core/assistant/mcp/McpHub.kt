@@ -96,6 +96,7 @@ class McpHub(private val context: Context, val store: McpStore) {
     private val stream = http.newBuilder().readTimeout(0, TimeUnit.SECONDS).build()
     private val oauth = OAuth(http)
     private val icons = ServerIcons(http)
+    private val phoneUse = PhoneUse(http)
     private val iconsTried = ConcurrentHashMap<String, String>()
     private val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "1"
 
@@ -283,6 +284,13 @@ class McpHub(private val context: Context, val store: McpStore) {
         val lookup = t.tool.readOnly || LOOKUP.containsMatchIn(t.tool.name)
         return result to if (lookup) null else ToolAction(s.name, describe(t.tool, arguments), !result.isError)
     }
+
+    /** PhoneUse's address on this phone when [url] is PhoneUse, which needs pairing rather than a key; null otherwise. */
+    suspend fun phoneUseAt(url: String): String? = phoneUse.local(url)?.toString()
+
+    /** Pairs with PhoneUse at [base]; [code] gets the eight digits to compare. Its token and MCP address. */
+    suspend fun pairPhoneUse(base: String, code: (String) -> Unit): Pair<String, String> =
+        phoneUse.pair(base.toHttpUrlOrNull() ?: throw McpException(McpException.Kind.NOT_MCP, "not a web address"), "Visor", code)
 
     /** Tries an address before it is saved: whether it answers, and what it needs to. */
     suspend fun probe(url: String, auth: AuthKind, secret: String, header: String): Probe {

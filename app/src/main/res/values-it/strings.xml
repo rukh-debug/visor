@@ -708,6 +708,8 @@
     <string name="mcp_phase_unreachable">Non raggiungibile da qui</string>
     <string name="mcp_phase_not_mcp">A questo indirizzo non c\'è un server MCP</string>
     <string name="mcp_phase_failed">Qualcosa non va</string>
+    <string name="mcp_phoneuse_code">Controlla che PhoneUse mostri %1$s, poi approva lì</string>
+    <string name="mcp_phoneuse_failed">PhoneUse non si è abbinato: %1$s</string>
     <string name="mcp_address">Indirizzo</string>
     <string name="mcp_name">Nome</string>
     <string name="mcp_connect">Collega</string>

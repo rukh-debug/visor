@@ -77,6 +77,7 @@ import com.macedonga.visor.core.design.Visor
 import com.macedonga.visor.ui.VisorIcons
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @HiltViewModel
@@ -262,10 +263,31 @@ private fun AddServerSheet(hub: McpHub, onDismiss: () -> Unit, onAdded: (String)
     val address = url.trim()
     val valid = address.startsWith("https://") || address.startsWith("http://")
     fun server(kind: AuthKind) = McpServer(name = name.trim().ifEmpty { hostOf(address) }, url = address, auth = kind, secret = secret.trim(), header = header.trim())
+    // PhoneUse pairs instead of taking a key: the code to compare while it waits, or why it did not pair.
+    var pairCode by remember { mutableStateOf<String?>(null) }
+    var pairError by remember { mutableStateOf<String?>(null) }
     fun connect() {
         probing = true
         probe = null
+        pairError = null
         scope.launch {
+            val phoneUse = hub.phoneUseAt(address)
+            if (phoneUse != null) {
+                try {
+                    val (token, mcp) = hub.pairPhoneUse(phoneUse) { pairCode = it }
+                    val s = McpServer(name = name.trim().ifEmpty { "PhoneUse" }, url = mcp, auth = AuthKind.TOKEN, secret = token)
+                    hub.store.add(s)
+                    onAdded(s.id)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (e: Exception) {
+                    pairError = e.message ?: e.javaClass.simpleName
+                } finally {
+                    probing = false
+                    pairCode = null
+                }
+                return@launch
+            }
             val found = hub.probe(address, auth, secret, header)
             probing = false
             probe = found
@@ -300,7 +322,14 @@ private fun AddServerSheet(hub: McpHub, onDismiss: () -> Unit, onAdded: (String)
         }
         val found = probe
         Box(Modifier.padding(horizontal = 32.dp).padding(top = 14.dp)) {
+            val code = pairCode
+            val missed = pairError
             when {
+                code != null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    Spinner()
+                    Text(stringResource(R.string.mcp_phoneuse_code, code), style = Visor.type.label, color = Visor.colors.textPrimary, modifier = Modifier.padding(start = 10.dp))
+                }
+                missed != null && !probing -> Text(stringResource(R.string.mcp_phoneuse_failed, missed), style = Visor.type.label, color = Visor.colors.signal)
                 probing -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Spinner()
                     Text(stringResource(R.string.mcp_phase_checking), style = Visor.type.label, color = Visor.colors.textSecondary, modifier = Modifier.padding(start = 10.dp))

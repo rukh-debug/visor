@@ -710,6 +710,8 @@
     <string name="mcp_phase_unreachable">Not reachable from here</string>
     <string name="mcp_phase_not_mcp">No MCP server at this address</string>
     <string name="mcp_phase_failed">Something went wrong</string>
+    <string name="mcp_phoneuse_code">Check that PhoneUse shows %1$s, then approve it there</string>
+    <string name="mcp_phoneuse_failed">PhoneUse did not pair: %1$s</string>
     <string name="mcp_address">Address</string>
     <string name="mcp_name">Name</string>
     <string name="mcp_connect">Connect</string>
