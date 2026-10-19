@@ -710,13 +710,6 @@
     <string name="mcp_phase_unreachable">Not reachable from here</string>
     <string name="mcp_phase_not_mcp">No MCP server at this address</string>
     <string name="mcp_phase_failed">Something went wrong</string>
-    <string name="mcp_preset_custom">Custom</string>
-    <string name="mcp_pair_how">Paste the address %1$s shows. Visor pairs with it instead of taking a key.</string>
-    <string name="mcp_pair_code">Check that %1$s shows %2$s, then approve it there</string>
-    <string name="mcp_pair_failed">%1$s did not pair: %2$s</string>
-    <string name="mcp_pairing">Pairing</string>
-    <string name="mcp_paired_with">Paired with %1$s</string>
-    <string name="mcp_pair_again">Pair again</string>
     <string name="mcp_address">Address</string>
     <string name="mcp_name">Name</string>
     <string name="mcp_connect">Connect</string>

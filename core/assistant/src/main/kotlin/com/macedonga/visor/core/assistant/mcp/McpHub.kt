@@ -96,10 +96,6 @@ class McpHub(private val context: Context, val store: McpStore) {
     private val stream = http.newBuilder().readTimeout(0, TimeUnit.SECONDS).build()
     private val oauth = OAuth(http)
     private val icons = ServerIcons(http)
-
-    /** The pairing schemes Visor speaks, and the starting points the Add sheet offers beside a plain address. */
-    val pairings: List<McpPairing> = listOf(PhoneUsePairing(http))
-    val presets: List<McpPreset> = listOf(McpPreset("PhoneUse", hint = "https://127.0.0.1:…", pairing = PhoneUsePairing.PROTOCOL))
     private val iconsTried = ConcurrentHashMap<String, String>()
     private val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "1"
 
@@ -286,25 +282,6 @@ class McpHub(private val context: Context, val store: McpStore) {
         note("${s.name}: ${t.tool.name} ${argumentWords(arguments)} -> ${if (result.isError) "error: " + result.text.take(160) else "ok"}, ${now() - started} ms")
         val lookup = t.tool.readOnly || LOOKUP.containsMatchIn(t.tool.name)
         return result to if (lookup) null else ToolAction(s.name, describe(t.tool, arguments), !result.isError)
-    }
-
-    fun pairing(id: String): McpPairing? = pairings.firstOrNull { it.id == id }
-
-    /** Pairs with the server at [address] through [pairing]; [code] gets the code to compare. The server, not yet saved. */
-    suspend fun pair(pairing: String, address: String, name: String, code: (String) -> Unit): McpServer {
-        val p = pairing(pairing) ?: throw McpException(McpException.Kind.PROTOCOL, "unknown pairing $pairing")
-        val base = p.locate(address) ?: throw McpException(McpException.Kind.NOT_MCP, "${p.name} does not answer at this address")
-        val paired = p.pair(base, "Visor", code)
-        note("${p.name}: paired, ${paired.url}")
-        return McpServer(name = name.ifEmpty { p.name }, url = paired.url, auth = AuthKind.TOKEN, secret = paired.token, pairing = p.id)
-    }
-
-    /** Pairs [id] again through the pairing it came from, for a fresh token. */
-    suspend fun pairAgain(id: String, code: (String) -> Unit) {
-        val s = store.get(id) ?: return
-        val fresh = pair(s.pairing, s.url, s.name, code)
-        store.update(id) { it.copy(url = fresh.url, auth = AuthKind.TOKEN, secret = fresh.secret) }
-        check(id)
     }
 
     /** Tries an address before it is saved: whether it answers, and what it needs to. */
