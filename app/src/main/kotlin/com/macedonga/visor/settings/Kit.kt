@@ -811,11 +811,12 @@ fun SheetField(
     secret: Boolean = false,
     keyboard: KeyboardType = KeyboardType.Text,
     focus: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
     if (focus) LaunchedEffect(Unit) { focusRequester.requestFocus() }
     Box(
-        Modifier
+        modifier
             .padding(horizontal = 16.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
@@ -855,7 +856,11 @@ fun TextSheet(
     var draft by remember { mutableStateOf(initial) }
     VisorSheet(onDismiss, full = !singleLine) {
         SheetTitle(title, sub)
-        SheetField(draft, { draft = filter(it) }, hint = hint, singleLine = singleLine, secret = secret, keyboard = keyboard, focus = true)
+        // A long text scrolls inside the field, so Save stays on screen.
+        SheetField(
+            draft, { draft = filter(it) }, hint = hint, singleLine = singleLine, secret = secret, keyboard = keyboard, focus = true,
+            modifier = if (singleLine) Modifier else Modifier.weight(1f, fill = false),
+        )
         Row(Modifier.fillMaxWidth().padding(horizontal = SIDE).padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             extra?.invoke(this) { draft = it }
             Spacer(Modifier.weight(1f))
