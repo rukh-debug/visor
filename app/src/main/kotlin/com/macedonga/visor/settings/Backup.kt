@@ -23,6 +23,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.macedonga.visor.R
 import com.macedonga.visor.core.assistant.AssistantConfigStore
+import com.macedonga.visor.core.assistant.ModelSet
 import com.macedonga.visor.core.assistant.Provider
 import com.macedonga.visor.core.assistant.mcp.AuthKind
 import com.macedonga.visor.core.assistant.mcp.McpServer
@@ -98,7 +99,17 @@ class Backups @Inject constructor(
                     .put("enabled", a.enabled).put("provider", a.provider.name).put("model", a.model).put("linesModel", a.linesModel)
                     .put("baseUrl", a.baseUrl).put("webSearch", a.webSearch).put("vision", a.vision).put("glassesVoice", a.glassesVoice)
                     .put("instructions", a.instructions).put("memoryMinutes", a.memoryMinutes)
-                    .put("answerWaitSeconds", a.answerWaitSeconds),
+                    .put("answerWaitSeconds", a.answerWaitSeconds).put("modelSet", a.modelSet)
+                    // The saved sets without their keys, like the integrations.
+                    .put(
+                        "sets",
+                        JSONArray(
+                            assistant.sets.value.map {
+                                JSONObject().put("name", it.name).put("provider", it.provider.name).put("baseUrl", it.baseUrl)
+                                    .put("model", it.model).put("linesModel", it.linesModel)
+                            },
+                        ),
+                    ),
             )
             .put("notifications", JSONObject().put("enabled", notify.enabled.value).put("muted", JSONArray(apps.muted.value.sorted())))
             .put("import", import.mode.value.name)
@@ -136,6 +147,18 @@ class Backups @Inject constructor(
     /** Puts Visor's part back at once, and the glasses' part one write at a time; the glasses' part needs them connected. */
     suspend fun restore(backup: JSONObject, onProgress: (Int, Int) -> Unit) {
         backup.optJSONObject("assistant")?.let { o ->
+            o.optJSONArray("sets")?.let { a ->
+                assistant.restoreSets(
+                    (0 until a.length()).mapNotNull { i ->
+                        val s = a.optJSONObject(i) ?: return@mapNotNull null
+                        ModelSet(
+                            s.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null,
+                            runCatching { Provider.valueOf(s.getString("provider")) }.getOrDefault(Provider.CLAUDE),
+                            "", s.optString("baseUrl"), s.optString("model"), s.optString("linesModel"),
+                        )
+                    },
+                )
+            }
             assistant.update {
                 it.copy(
                     enabled = o.optBoolean("enabled", it.enabled),
@@ -149,6 +172,7 @@ class Backups @Inject constructor(
                     instructions = o.optString("instructions", it.instructions),
                     memoryMinutes = o.optInt("memoryMinutes", it.memoryMinutes),
                     answerWaitSeconds = o.optInt("answerWaitSeconds", it.answerWaitSeconds),
+                    modelSet = o.optString("modelSet", it.modelSet),
                 )
             }
         }

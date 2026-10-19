@@ -463,6 +463,15 @@
     <string name="ai_answer">Answer with your model</string>
     <string name="ai_answer_sub">Off, the glasses\' own assistant has no phone behind it.</string>
     <string name="ai_section_model">Model</string>
+    <string name="ai_sets">Saved sets</string>
+    <string name="ai_sets_none">None yet</string>
+    <string name="ai_sets_none_sub">Keep this provider, key and model under a name, to switch back in one tap.</string>
+    <string name="ai_sets_edit">Edit…</string>
+    <string name="ai_sets_sub">Tap one to use it. Changes to the provider, key or models go into the set in use. Long-press to rename.</string>
+    <string name="ai_sets_save">Save these as a set</string>
+    <string name="ai_sets_name">Name</string>
+    <string name="ai_sets_rename">Rename</string>
+    <string name="ai_sets_forget">Delete set</string>
     <string name="ai_provider">Provider</string>
     <string name="ai_openai_compatible">OpenAI-compatible</string>
     <string name="ai_base_url">Server</string>

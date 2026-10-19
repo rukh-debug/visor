@@ -6,7 +6,11 @@ import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,6 +29,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -42,6 +47,7 @@ import com.macedonga.visor.core.assistant.Assistant
 import com.macedonga.visor.core.assistant.AssistantConfigStore
 import com.macedonga.visor.core.assistant.AssistantPhase
 import com.macedonga.visor.core.assistant.ModelInfo
+import com.macedonga.visor.core.assistant.ModelSet
 import com.macedonga.visor.core.assistant.ModelsError
 import com.macedonga.visor.core.assistant.Provider
 import com.macedonga.visor.core.assistant.listModels
@@ -80,6 +86,7 @@ private sealed interface KeyCheck {
 fun AssistantSettingsScreen(open: (NavKey) -> Unit, model: AssistantViewModel = hiltViewModel()) {
     val context = LocalContext.current
     val config by model.store.config.collectAsStateWithLifecycle()
+    val sets by model.store.sets.collectAsStateWithLifecycle()
     val phase by model.assistant.phase.collectAsStateWithLifecycle()
     var hearing by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
     val askHearing = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hearing = it }
@@ -119,6 +126,18 @@ fun AssistantSettingsScreen(open: (NavKey) -> Unit, model: AssistantViewModel = 
             Column {
                 SectionLabel(stringResource(R.string.ai_section_model))
                 Rows(
+                    if (sets.isEmpty()) row {
+                        ValueRow(stringResource(R.string.ai_sets), stringResource(R.string.ai_sets_none), onClick = { sheet = "sets" }, sub = stringResource(R.string.ai_sets_none_sub))
+                    } else row {
+                        // One tap switches; the last pill opens the list to save, rename or delete.
+                        PillsRow(
+                            stringResource(R.string.ai_sets),
+                            sets.map { it.name to it.name } + (EDIT_SETS to stringResource(R.string.ai_sets_edit)),
+                            config.modelSet.takeIf { n -> sets.any { it.name == n } },
+                            onPick = { name -> if (name == EDIT_SETS) sheet = "sets" else model.store.use(name) },
+                            onLongClick = { sheet = "sets" },
+                        )
+                    },
                     {
                         PillsRow(
                             stringResource(R.string.ai_provider),
@@ -256,6 +275,14 @@ fun AssistantSettingsScreen(open: (NavKey) -> Unit, model: AssistantViewModel = 
             stringResource(R.string.ai_instructions), config.instructions, onSave = { text -> model.store.update { it.copy(instructions = text) } },
             onDismiss = { sheet = null }, sub = stringResource(R.string.ai_instructions_sub), singleLine = false,
         )
+        "sets" -> SetsSheet(
+            sets, config.modelSet,
+            onUse = { model.store.use(it) },
+            onSaveAs = { model.store.saveAs(it) },
+            onRename = { from, to -> model.store.rename(from, to) },
+            onForget = { model.store.forget(it) },
+            onDismiss = { sheet = null },
+        )
         "model", "lines" -> {
             val lines = sheet == "lines"
             ModelSheet(
@@ -268,6 +295,75 @@ fun AssistantSettingsScreen(open: (NavKey) -> Unit, model: AssistantViewModel = 
             )
         }
     }
+}
+
+private const val EDIT_SETS = " edit"
+
+/** The saved sets: tap to use, long-press to rename, the bin to delete, and the fields in use saved under a new name. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SetsSheet(
+    sets: List<ModelSet>,
+    active: String,
+    onUse: (String) -> Unit,
+    onSaveAs: (String) -> Unit,
+    onRename: (String, String) -> Unit,
+    onForget: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var naming by remember { mutableStateOf<String?>(null) }
+    var renaming by remember { mutableStateOf<String?>(null) }
+    naming?.let { start ->
+        TextSheet(
+            stringResource(R.string.ai_sets_save), start, onSave = { onSaveAs(it.trim()) }, onDismiss = { naming = null },
+            hint = stringResource(R.string.ai_sets_name), valid = { it.isNotBlank() },
+        )
+        return
+    }
+    renaming?.let { from ->
+        TextSheet(
+            stringResource(R.string.ai_sets_rename), from, onSave = { onRename(from, it.trim()) }, onDismiss = { renaming = null },
+            hint = stringResource(R.string.ai_sets_name), valid = { it.isNotBlank() && sets.none { s -> s.name == it.trim() } },
+        )
+        return
+    }
+    VisorSheet(onDismiss, full = sets.size > 6) {
+        SheetTitle(stringResource(R.string.ai_sets), stringResource(if (sets.isEmpty()) R.string.ai_sets_none_sub else R.string.ai_sets_sub))
+        LazyColumn(Modifier.heightIn(max = 480.dp)) {
+            items(sets.size) { i ->
+                val s = sets[i]
+                Row(
+                    Modifier.fillMaxWidth()
+                        .combinedClickable(onClick = { onUse(s.name); onDismiss() }, onLongClick = { renaming = s.name })
+                        .padding(start = SIDE, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(s.name, style = Visor.type.body, color = Visor.colors.textPrimary)
+                        Text(setWords(s), style = Visor.type.label, color = Visor.colors.textSecondary)
+                    }
+                    if (s.name == active) Icon(VisorIcons.Check, null, Modifier.padding(start = 12.dp).size(22.dp), tint = Color.White)
+                    Icon(
+                        VisorIcons.Trash, stringResource(R.string.ai_sets_forget),
+                        Modifier.padding(start = 4.dp).size(44.dp).clip(CircleShape).clickable { onForget(s.name) }.padding(11.dp),
+                        tint = Visor.colors.textSecondary,
+                    )
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = SIDE).padding(top = 12.dp)) {
+            Spacer(Modifier.weight(1f))
+            ActionPill(stringResource(R.string.ai_sets_save), { naming = "" })
+        }
+    }
+}
+
+@Composable
+private fun setWords(s: ModelSet): String {
+    val claude = s.provider == Provider.CLAUDE
+    val where = if (claude) "Claude" else s.baseUrl.substringAfter("://").substringBefore('/').ifEmpty { stringResource(R.string.ai_openai_compatible) }
+    val what = modelWords(s.model.ifBlank { if (claude) DEFAULT_CLAUDE else "" })
+    return listOf(where, what).filter { it.isNotEmpty() }.joinToString(" · ")
 }
 
 /** The provider's models, newest first, with the empty choice on top and a way to type an id it does not list. */

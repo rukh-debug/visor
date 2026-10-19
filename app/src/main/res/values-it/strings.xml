@@ -462,6 +462,15 @@
     <string name="ai_answer">Rispondi con il tuo modello</string>
     <string name="ai_answer_sub">Spento, l\'assistente degli occhiali non ha un telefono dietro.</string>
     <string name="ai_section_model">Modello</string>
+    <string name="ai_sets">Set salvati</string>
+    <string name="ai_sets_none">Ancora nessuno</string>
+    <string name="ai_sets_none_sub">Tieni fornitore, chiave e modello sotto un nome, per tornarci con un tocco.</string>
+    <string name="ai_sets_edit">Modifica…</string>
+    <string name="ai_sets_sub">Toccane uno per usarlo. Le modifiche a fornitore, chiave o modelli vanno nel set in uso. Tieni premuto per rinominare.</string>
+    <string name="ai_sets_save">Salva questi come set</string>
+    <string name="ai_sets_name">Nome</string>
+    <string name="ai_sets_rename">Rinomina</string>
+    <string name="ai_sets_forget">Elimina set</string>
     <string name="ai_provider">Fornitore</string>
     <string name="ai_openai_compatible">Compatibile OpenAI</string>
     <string name="ai_base_url">Server</string>
