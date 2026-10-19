@@ -34,6 +34,8 @@ class GlassesEars(
     private val onUtterance: (text: String, startMs: Long, endMs: Long) -> Unit,
     private val onProblem: (String) -> Unit,
     private val onDone: () -> Unit = {},
+    // What the recogniser has so far of the utterance under way, before it ends.
+    private val onPartial: (String) -> Unit = {},
 ) {
     private val main = Handler(Looper.getMainLooper())
 
@@ -199,6 +201,7 @@ class GlassesEars(
             putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
             putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
             putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, RATE)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             // One session for as long as the pipe is open; each utterance comes back as a segment.
             putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)
         }
@@ -272,7 +275,10 @@ class GlassesEars(
         override fun onRmsChanged(rmsdB: Float) = Unit
         override fun onBufferReceived(buffer: ByteArray?) = Unit
         override fun onEndOfSpeech() = Unit
-        override fun onPartialResults(partialResults: Bundle?) = Unit
+        override fun onPartialResults(partialResults: Bundle?) {
+            partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim()
+                ?.takeIf { it.isNotEmpty() }?.let(onPartial)
+        }
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
 
         override fun onError(error: Int) {

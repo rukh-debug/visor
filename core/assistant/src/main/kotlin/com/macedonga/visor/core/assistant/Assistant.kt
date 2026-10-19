@@ -201,11 +201,35 @@ class Assistant(
         l.listening = interaction
         if (interaction.isEmpty() || !store.config.value.enabled) return
         say("Listening to the microphone for $interaction")
+        l.speaking?.let { say("The glasses opened their microphone while the answer to ${it.interaction} played") }
+        // When the wearer talked over the answer playing, so what they said is a new question.
+        val bargedAt = java.util.concurrent.atomic.AtomicLong(0)
+        fun bargeIn(text: String) {
+            val playing = l.speaking ?: return
+            if (playing.cutAt != 0L || !talksOver(text, playing.words)) return
+            playing.cutAt = System.currentTimeMillis()
+            bargedAt.set(playing.cutAt)
+            say("Talked over the answer (\"$text\"): stopping it")
+        }
         ears = GlassesEars(
             context, l.locale, continuous = true,
+            onPartial = { bargeIn(it) },
             onUtterance = { text, startMs, _ ->
+                // Recognisers without partial results only give the whole utterance.
+                bargeIn(text)
+                val barged = bargedAt.getAndSet(0)
                 scope.launch {
                     delay(OWN_RECOGNITION_GRACE_MS)
+                    if (barged != 0L) {
+                        // The glasses took it as a question of their own.
+                        if (l.requestAt > barged) return@launch
+                        val sub = java.util.UUID.randomUUID().toString()
+                        say("Heard \"$text\" over the answer: a new question, answered as $sub")
+                        l.mux.send(checkNotNull(l.m0), netEvent(EV_START_OF_USER_SPEECH, ThriftWriter().str(1, sub).i64(2, startMs).done()), messageType = MT_NET_EVENT)
+                        l.taken.add(sub)
+                        answer(l, sub, text, Visual(null, "", "", false, ""))
+                        return@launch
+                    }
                     if (interaction in l.closed) return@launch
                     when {
                         // The question itself, which the glasses recognised and sent as ev57.
@@ -269,6 +293,10 @@ class Assistant(
         // Questions asked with the wake word rather than as a follow-up: they continue a conversation only right after it.
         val fresh: MutableSet<String> = Collections.newSetFromMap(ConcurrentHashMap())
         @Volatile var locale: Locale = Locale.US
+        // The answer playing in the phone's voice, which the wearer can talk over.
+        @Volatile var speaking: Speaking? = null
+        // When the glasses last sent a question of their own.
+        @Volatile var requestAt = 0L
         // ev57's field 30, MobileConfig assistant_on_sn.simplify_mwa_message_forwarding. Off (the factory value),
         // the glasses act on a VARM the moment it lands and end the turn there.
         @Volatile var simplified = true
@@ -643,6 +671,7 @@ class Assistant(
         val interaction = m[1].asText()
         val transcript = m[2].asStruct()[1].asStruct()[1].asText()
         if (interaction.isEmpty() || !l.taken.add(interaction)) return
+        l.requestAt = System.currentTimeMillis()
         if (m[11] != FOLLOW_UP_INVOCATION) l.fresh.add(interaction)
         // In a session the request has its own id; the microphone's is the session's, and it is the same turn.
         l.listening?.takeIf { it != interaction }?.let {
@@ -994,22 +1023,29 @@ class Assistant(
         val answer = netEvent(EV_VOICE_ACTION_RESPONSE, varm(interaction, transcript, text))
         val start = System.nanoTime()
         var dueUs = 0L
-        for ((i, chunk) in packets.chunked(2).withIndex()) {
-            val frame = chunk.fold(ByteArray(0)) { acc, p ->
-                acc + ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(p.data.size).array() + p.data
+        val playing = Speaking(interaction, wordsOf(text).toSet()).also { l.speaking = it }
+        try {
+            for ((i, chunk) in packets.chunked(2).withIndex()) {
+                // Talked over: the rest is not sent, and the glasses stop with what they hold.
+                if (playing.cutAt != 0L) break
+                val frame = chunk.fold(ByteArray(0)) { acc, p ->
+                    acc + ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(p.data.size).array() + p.data
+                }
+                if (i == 0) {
+                    mux.send(s0, frame, messageType = MT_STREAM_AUDIO)
+                    // The VARM goes after the first audio message, never before; without simplified forwarding it would
+                    // end the turn on arrival, so it waits for the end of the audio.
+                    if (l.simplified) mux.send(m0, answer, messageType = MT_NET_EVENT)
+                } else {
+                    // A bare header: tagged with type 0, only the first 40 ms would ever play.
+                    mux.send(s0, frame)
+                }
+                dueUs += chunk.sumOf { it.durationUs }
+                val wait = dueUs / 1000 - (System.nanoTime() - start) / 1_000_000
+                if (wait > 0) delay(wait)
             }
-            if (i == 0) {
-                mux.send(s0, frame, messageType = MT_STREAM_AUDIO)
-                // The VARM goes after the first audio message, never before; without simplified forwarding it would
-                // end the turn on arrival, so it waits for the end of the audio.
-                if (l.simplified) mux.send(m0, answer, messageType = MT_NET_EVENT)
-            } else {
-                // A bare header: tagged with type 0, only the first 40 ms would ever play.
-                mux.send(s0, frame)
-            }
-            dueUs += chunk.sumOf { it.durationUs }
-            val wait = dueUs / 1000 - (System.nanoTime() - start) / 1_000_000
-            if (wait > 0) delay(wait)
+        } finally {
+            if (l.speaking === playing) l.speaking = null
         }
         mux.send(s0, ByteArray(0), messageType = MT_STREAM_END)
         if (!l.simplified) mux.send(m0, answer, messageType = MT_NET_EVENT)
@@ -1020,7 +1056,7 @@ class Assistant(
             mux.send(m0, netEvent(event, body), messageType = MT_NET_EVENT)
             delay(20)
         }
-        say("Answered: \"$text\"")
+        say(if (playing.cutAt != 0L) "Answered, cut short: \"$text\"" else "Answered: \"$text\"")
     }
 
     /** 5005: `<streamId>_<interactionId>_<pcmBytes>_<ms>`, 96 bytes of PCM per millisecond played. */
@@ -1242,6 +1278,24 @@ const val ANSWER_TOO_LATE = "too late for the glasses"
 
 /** The problem of a turn the glasses did themselves, with no answer from Visor. */
 const val ON_GLASSES = "done on the glasses"
+
+/** An answer in the phone's voice while it plays, and when the wearer talked over it (0 until then). */
+internal class Speaking(val interaction: String, val words: Set<String>) {
+    @Volatile var cutAt = 0L
+}
+
+private fun wordsOf(text: String): List<String> =
+    text.lowercase().split(Regex("[^\\p{L}\\p{N}']+")).filter { it.length > 1 }
+
+/**
+ * Whether [heard] is the wearer talking over an answer whose words are [answer], not the answer's own sound coming
+ * back through the microphone: two words or more, at least half of them not in the answer.
+ */
+private fun talksOver(heard: String, answer: Set<String>): Boolean {
+    val words = wordsOf(heard)
+    val novel = words.count { it !in answer }
+    return novel >= 2 && novel * 2 >= words.size
+}
 
 /** An answer that ends on a question. */
 private val ASKS = Regex("""[?？؟][\s"'”’»)]*$""")
