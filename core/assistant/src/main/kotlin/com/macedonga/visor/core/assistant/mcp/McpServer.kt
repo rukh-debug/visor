@@ -79,6 +79,8 @@ data class McpServer(
     // Where the typed-in client sends the browser back: the app, or a loopback address.
     val redirect: String = "",
     val oauth: OAuthGrant? = null,
+    // The [McpPairing] that gave the token, by id; empty when it was typed in.
+    val pairing: String = "",
 ) {
     /** What a connection depends on: when it changes, an open session is let go. Tokens refresh without counting. */
     val connectionKey: String get() = listOf(url, auth, secret, header, oauth?.clientId, oauth?.signedIn).joinToString("|")
@@ -86,7 +88,7 @@ data class McpServer(
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("name", name).put("url", url).put("enabled", enabled).put("auth", auth.name)
         .put("secret", secret).put("header", header).put("off", JSONArray(off.sorted())).put("transport", transport.name)
-        .put("clientId", clientId).put("clientSecret", clientSecret).put("redirect", redirect)
+        .put("clientId", clientId).put("clientSecret", clientSecret).put("redirect", redirect).put("pairing", pairing)
         .apply { oauth?.let { put("oauth", it.toJson()) } }
 
     companion object {
@@ -97,7 +99,7 @@ data class McpServer(
             off = o.optJSONArray("off")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() }.orEmpty(),
             transport = runCatching { Transport.valueOf(o.optString("transport")) }.getOrDefault(Transport.AUTO),
             clientId = o.optString("clientId"), clientSecret = o.optString("clientSecret"), redirect = o.optString("redirect"),
-            oauth = o.optJSONObject("oauth")?.let(OAuthGrant::from),
+            oauth = o.optJSONObject("oauth")?.let(OAuthGrant::from), pairing = o.optString("pairing"),
         )
     }
 }

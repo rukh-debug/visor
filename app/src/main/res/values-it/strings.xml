@@ -708,8 +708,13 @@
     <string name="mcp_phase_unreachable">Non raggiungibile da qui</string>
     <string name="mcp_phase_not_mcp">A questo indirizzo non c\'è un server MCP</string>
     <string name="mcp_phase_failed">Qualcosa non va</string>
-    <string name="mcp_phoneuse_code">Controlla che PhoneUse mostri %1$s, poi approva lì</string>
-    <string name="mcp_phoneuse_failed">PhoneUse non si è abbinato: %1$s</string>
+    <string name="mcp_preset_custom">Personalizzato</string>
+    <string name="mcp_pair_how">Incolla l\'indirizzo che mostra %1$s. Visor si abbina invece di chiedere una chiave.</string>
+    <string name="mcp_pair_code">Controlla che %1$s mostri %2$s, poi approva lì</string>
+    <string name="mcp_pair_failed">%1$s non si è abbinato: %2$s</string>
+    <string name="mcp_pairing">Abbinamento</string>
+    <string name="mcp_paired_with">Abbinato con %1$s</string>
+    <string name="mcp_pair_again">Abbina di nuovo</string>
     <string name="mcp_address">Indirizzo</string>
     <string name="mcp_name">Nome</string>
     <string name="mcp_connect">Collega</string>

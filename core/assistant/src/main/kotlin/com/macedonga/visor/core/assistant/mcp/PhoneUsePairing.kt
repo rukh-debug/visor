@@ -22,20 +22,22 @@ import org.json.JSONObject
  * gives ("phoneuse-sas-v1"). Visor commits to the server's TLS key, both sides show an eight-digit code, and the person
  * approves in PhoneUse. Plain HTTP is allowed from 127.0.0.1 to 127.0.0.1, so Visor talks to it there.
  */
-internal class PhoneUse(private val http: OkHttpClient) {
-    /** PhoneUse's base on this phone for [address] (any address of it, the /connect link too); null when it is not PhoneUse. */
-    suspend fun local(address: String): HttpUrl? {
+internal class PhoneUsePairing(private val http: OkHttpClient) : McpPairing {
+    override val id = PROTOCOL
+    override val name = "PhoneUse"
+
+    /** PhoneUse's base on this phone for [address] (any address of it, the /connect link too). */
+    override suspend fun locate(address: String): HttpUrl? {
         val port = address.trim().toHttpUrlOrNull()?.port ?: return null
         val base = "http://127.0.0.1:$port/".toHttpUrlOrNull() ?: return null
         val identity = runCatching { get(base.resolve("identity")!!) }.getOrNull() ?: return null
         return base.takeIf { identity.has("device_id") && identity.has("service_instance_id") }
     }
 
-    /** Pairs as [name]; [code] gets the eight digits to compare. The token and the MCP address, or an error. */
-    suspend fun pair(base: HttpUrl, name: String, code: (String) -> Unit): Pair<String, String> {
+    override suspend fun pair(base: HttpUrl, client: String, code: (String) -> Unit): Paired {
         val pin = pin(base.host, base.port)
         val nonce = hex(ByteArray(32).also(SecureRandom()::nextBytes))
-        val request = post(base.resolve("pair/request")!!, JSONObject().put("client_name", name.take(80)).put("protocol", PROTOCOL).put("commitment", hex(digest("commit", pin, nonce))))
+        val request = post(base.resolve("pair/request")!!, JSONObject().put("client_name", client.take(80)).put("protocol", PROTOCOL).put("commitment", hex(digest("commit", pin, nonce))))
         val id = request.getString("pairing_id")
         val secret = request.getString("pairing_secret")
         val serverNonce = request.getString("server_nonce")
@@ -48,7 +50,7 @@ internal class PhoneUse(private val http: OkHttpClient) {
             delay(2_000)
             val status = post(base.resolve("pair/status")!!, JSONObject().put("pairing_id", id).put("pairing_secret", secret))
             when (status.optString("status")) {
-                "approved" -> return status.getString("token") to base.resolve(status.optString("mcp_path", "/mcp").removePrefix("/"))!!.toString()
+                "approved" -> return Paired(status.getString("token"), base.resolve(status.optString("mcp_path", "/mcp").removePrefix("/"))!!.toString())
                 "denied" -> throw McpException(McpException.Kind.FORBIDDEN, "PhoneUse turned the pairing down")
             }
         }
@@ -86,7 +88,7 @@ internal class PhoneUse(private val http: OkHttpClient) {
 
     private fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it) }
 
-    private companion object {
+    companion object {
         const val PROTOCOL = "phoneuse-sas-v1"
     }
 }

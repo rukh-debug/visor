@@ -66,6 +66,7 @@ import com.macedonga.visor.IntegrationKey
 import com.macedonga.visor.R
 import com.macedonga.visor.core.assistant.mcp.AuthKind
 import com.macedonga.visor.core.assistant.mcp.McpHub
+import com.macedonga.visor.core.assistant.mcp.McpPreset
 import com.macedonga.visor.core.assistant.mcp.McpServer
 import com.macedonga.visor.core.assistant.mcp.McpStatus
 import com.macedonga.visor.core.assistant.mcp.McpTool
@@ -263,7 +264,9 @@ private fun AddServerSheet(hub: McpHub, onDismiss: () -> Unit, onAdded: (String)
     val address = url.trim()
     val valid = address.startsWith("https://") || address.startsWith("http://")
     fun server(kind: AuthKind) = McpServer(name = name.trim().ifEmpty { hostOf(address) }, url = address, auth = kind, secret = secret.trim(), header = header.trim())
-    // PhoneUse pairs instead of taking a key: the code to compare while it waits, or why it did not pair.
+    // A preset may pair instead of taking a key: the code to compare while it waits, or why it did not pair.
+    var preset by remember { mutableStateOf<McpPreset?>(null) }
+    val pairing = preset?.pairing?.let(hub::pairing)
     var pairCode by remember { mutableStateOf<String?>(null) }
     var pairError by remember { mutableStateOf<String?>(null) }
     fun connect() {
@@ -271,11 +274,9 @@ private fun AddServerSheet(hub: McpHub, onDismiss: () -> Unit, onAdded: (String)
         probe = null
         pairError = null
         scope.launch {
-            val phoneUse = hub.phoneUseAt(address)
-            if (phoneUse != null) {
+            if (pairing != null) {
                 try {
-                    val (token, mcp) = hub.pairPhoneUse(phoneUse) { pairCode = it }
-                    val s = McpServer(name = name.trim().ifEmpty { "PhoneUse" }, url = mcp, auth = AuthKind.TOKEN, secret = token)
+                    val s = hub.pair(pairing.id, address, name.trim()) { pairCode = it }
                     hub.store.add(s)
                     onAdded(s.id)
                 } catch (cancelled: CancellationException) {
@@ -303,11 +304,23 @@ private fun AddServerSheet(hub: McpHub, onDismiss: () -> Unit, onAdded: (String)
     }
     VisorSheet(onDismiss, full = true) {
         SheetTitle(stringResource(R.string.mcp_add))
+        if (hub.presets.isNotEmpty()) {
+            Box(Modifier.padding(horizontal = 16.dp).padding(bottom = 20.dp)) {
+                Pills(listOf<Pair<McpPreset?, String>>(null to stringResource(R.string.mcp_preset_custom)) + hub.presets.map { it to it.name }, preset) { p ->
+                    preset = p
+                    url = p?.url.orEmpty()
+                    probe = null
+                    pairError = null
+                    auth = AuthKind.NONE
+                }
+            }
+        }
         FieldLabel(stringResource(R.string.mcp_address), first = true)
-        SheetField(url, { url = it.trim(); probe = null }, hint = "https://…", keyboard = KeyboardType.Uri, focus = true)
+        SheetField(url, { url = it.trim(); probe = null }, hint = preset?.hint ?: "https://…", keyboard = KeyboardType.Uri, focus = true)
         FieldLabel(stringResource(R.string.mcp_name))
-        SheetField(name, { name = it }, hint = hostOf(address))
-        AnimatedVisibility(auth != AuthKind.NONE, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+        SheetField(name, { name = it }, hint = preset?.name ?: hostOf(address))
+        if (pairing != null) Footnote(stringResource(R.string.mcp_pair_how, pairing.name))
+        AnimatedVisibility(auth != AuthKind.NONE && pairing == null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Column {
                 Box(Modifier.padding(horizontal = 16.dp).padding(top = 20.dp)) {
                     Pills(listOf(AuthKind.TOKEN to stringResource(R.string.mcp_token), AuthKind.HEADER to stringResource(R.string.mcp_header)), auth) { auth = it }
@@ -327,9 +340,9 @@ private fun AddServerSheet(hub: McpHub, onDismiss: () -> Unit, onAdded: (String)
             when {
                 code != null -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Spinner()
-                    Text(stringResource(R.string.mcp_phoneuse_code, code), style = Visor.type.label, color = Visor.colors.textPrimary, modifier = Modifier.padding(start = 10.dp))
+                    Text(stringResource(R.string.mcp_pair_code, pairing?.name.orEmpty(), code), style = Visor.type.label, color = Visor.colors.textPrimary, modifier = Modifier.padding(start = 10.dp))
                 }
-                missed != null && !probing -> Text(stringResource(R.string.mcp_phoneuse_failed, missed), style = Visor.type.label, color = Visor.colors.signal)
+                missed != null && !probing -> Text(stringResource(R.string.mcp_pair_failed, pairing?.name.orEmpty(), missed), style = Visor.type.label, color = Visor.colors.signal)
                 probing -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Spinner()
                     Text(stringResource(R.string.mcp_phase_checking), style = Visor.type.label, color = Visor.colors.textSecondary, modifier = Modifier.padding(start = 10.dp))
@@ -413,6 +426,28 @@ fun IntegrationScreen(id: String, onGone: () -> Unit, model: IntegrationsViewMod
     val update: ((McpServer) -> McpServer) -> Unit = { change -> hub.store.update(id, change) }
 
     val signing = mine is SignIn.Preparing || mine is SignIn.Finishing
+    // A paired server pairs again for a fresh token: the code to compare meanwhile, or why it did not.
+    val scope = rememberCoroutineScope()
+    val pairing = hub.pairing(server.pairing)
+    var repairing by remember { mutableStateOf(false) }
+    var pairCode by remember { mutableStateOf<String?>(null) }
+    var pairError by remember { mutableStateOf<String?>(null) }
+    fun pairAgain() {
+        repairing = true
+        pairError = null
+        scope.launch {
+            try {
+                hub.pairAgain(id) { pairCode = it }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                pairError = e.message ?: e.javaClass.simpleName
+            } finally {
+                repairing = false
+                pairCode = null
+            }
+        }
+    }
     SettingsPage(
         server.name,
         actions = {
@@ -449,7 +484,19 @@ fun IntegrationScreen(id: String, onGone: () -> Unit, model: IntegrationsViewMod
             Column {
                 SectionLabel(stringResource(R.string.mcp_section_access))
                 val wantsAccount = status?.phase == McpStatus.Phase.SIGN_IN
-                Rows(*accessRows(server, mine, wantsAccount, onSheet = { sheet = it }, onSignIn = { hub.signIn(id) }, onSignOut = { hub.signOut(id) }, context).toTypedArray())
+                val paired: List<@Composable () -> Unit> = if (pairing == null) emptyList() else listOf {
+                    val code = pairCode
+                    RowFrame(
+                        stringResource(R.string.mcp_pairing),
+                        onClick = null,
+                        sub = if (code != null) stringResource(R.string.mcp_pair_code, pairing.name, code) else stringResource(R.string.mcp_paired_with, pairing.name),
+                        busy = repairing,
+                    ) {
+                        ActionPill(stringResource(R.string.mcp_pair_again), ::pairAgain, modifier = Modifier.padding(start = 12.dp), enabled = !repairing)
+                    }
+                }
+                Rows(*(paired + accessRows(server, mine, wantsAccount, onSheet = { sheet = it }, onSignIn = { hub.signIn(id) }, onSignOut = { hub.signOut(id) }, context)).toTypedArray())
+                pairError?.let { Footnote(stringResource(R.string.mcp_pair_failed, pairing?.name.orEmpty(), it), color = Visor.colors.signal) }
                 val failed = mine as? SignIn.Failed
                 if (failed != null) {
                     Footnote(if (failed.needsClient) stringResource(R.string.mcp_needs_client) else failed.why, color = Visor.colors.signal)
