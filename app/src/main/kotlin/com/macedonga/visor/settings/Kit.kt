@@ -613,6 +613,7 @@ fun <T> PillsRow(
     problem: String? = null,
     dense: Boolean = false,
     busy: Boolean = false,
+    onLongPick: ((T) -> Unit)? = null,
 ) {
     val host = LocalHost.current
     val blocked = stringResource(R.string.settings_locked)
@@ -620,7 +621,7 @@ fun <T> PillsRow(
         title, onClick = null, onLongClick = onLongClick, locked = locked, changed = changed, busy = busy,
         overline = overline, sub = sub, keyLine = keyLine, problem = problem, dense = dense,
         below = {
-            Pills(options, selected, on = Visor.colors.control) { picked ->
+            Pills(options, selected, on = Visor.colors.control, onLongPick = onLongPick?.takeUnless { locked }?.let { f -> { v: T -> host.haptics.tick(0.5f); f(v) } }) { picked ->
                 if (locked) {
                     host.haptics.tick(0.3f)
                     host.notice.show(blocked)
@@ -633,8 +634,10 @@ fun <T> PillsRow(
     )
 }
 
+/** [onLongPick], when given, is a long press on one pill. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun <T> Pills(options: List<Pair<T, String>>, selected: T?, on: Color = Visor.colors.raised, onPick: (T) -> Unit) {
+fun <T> Pills(options: List<Pair<T, String>>, selected: T?, on: Color = Visor.colors.raised, onLongPick: ((T) -> Unit)? = null, onPick: (T) -> Unit) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for ((value, label) in options) {
             val chosen = value == selected
@@ -643,7 +646,9 @@ fun <T> Pills(options: List<Pair<T, String>>, selected: T?, on: Color = Visor.co
                 label,
                 style = Visor.type.label,
                 color = if (chosen) Color.Black else Visor.colors.textPrimary,
-                modifier = Modifier.clip(RoundedCornerShape(50)).background(back).clickable { onPick(value) }.padding(horizontal = 14.dp, vertical = 9.dp),
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(back)
+                    .combinedClickable(onClick = { onPick(value) }, onLongClick = onLongPick?.let { { it(value) } })
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
             )
         }
     }

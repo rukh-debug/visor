@@ -59,17 +59,31 @@ class AssistantConfigStore(context: Context) : FieldBook {
     private val _sets = MutableStateFlow(loadSets())
     val sets: StateFlow<List<ModelSet>> = _sets.asStateFlow()
 
+    init {
+        // There is always a set in use: the first one is whatever was set up before sets existed.
+        val c = _config.value
+        if (_sets.value.none { it.name == c.modelSet }) {
+            val first = _sets.value.firstOrNull()
+            if (first != null) update { first.into(it) } else {
+                val name = c.modelSet.ifBlank { firstName(c) }
+                keepSets(listOf(ModelSet.of(name, c)))
+                update { it.copy(modelSet = name) }
+            }
+        }
+    }
+
     /** Puts a saved set's provider, key and models in use. */
     fun use(name: String) {
         val set = _sets.value.firstOrNull { it.name == name } ?: return
         update { set.into(it) }
     }
 
-    /** Keeps the model fields in use under [name], replacing a set of that name, and follows it from now on. */
-    fun saveAs(name: String) {
-        val c = _config.value.copy(modelSet = name)
-        keepSets(_sets.value.filter { it.name != name } + ModelSet.of(name, c))
-        update { c }
+    /** A new, empty set, in use at once, to be filled in where the old one was. */
+    fun create(name: String) {
+        val d = AssistantConfig()
+        val set = ModelSet(name, d.provider, "", d.baseUrl, "", "")
+        keepSets(_sets.value.filter { it.name != name } + set)
+        update { set.into(it) }
     }
 
     fun rename(from: String, to: String) {
@@ -78,9 +92,12 @@ class AssistantConfigStore(context: Context) : FieldBook {
         if (_config.value.modelSet == from) update { it.copy(modelSet = to) }
     }
 
+    /** Deletes a set, never the last; deleting the one in use moves to the first left. */
     fun forget(name: String) {
-        keepSets(_sets.value.filter { it.name != name })
-        if (_config.value.modelSet == name) update { it.copy(modelSet = "") }
+        val left = _sets.value.filter { it.name != name }
+        if (left.isEmpty()) return
+        keepSets(left)
+        if (_config.value.modelSet == name) update { left.first().into(it) }
     }
 
     /** Sets from a backup, keys left as they are here: a new name is added, a known one keeps its key. */
@@ -148,6 +165,9 @@ class AssistantConfigStore(context: Context) : FieldBook {
             modelSet = prefs.getString("model_set", d.modelSet).orEmpty(),
         )
     }
+
+    private fun firstName(c: AssistantConfig): String =
+        if (c.provider == Provider.CLAUDE) "Claude" else c.baseUrl.substringAfter("://").substringBefore('/').substringBefore(':').ifBlank { "Default" }
 
     private fun keepSets(sets: List<ModelSet>) {
         val a = JSONArray()
