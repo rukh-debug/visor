@@ -224,8 +224,6 @@
     <string name="live_settings_resolution">Resolution</string>
     <string name="live_settings_bitrate">Bitrate</string>
     <string name="live_settings_frame_rate">Frame rate</string>
-    <string name="live_settings_band">Wi-Fi band</string>
-    <string name="live_settings_band_sub">At 5 GHz the glasses\' Wi-Fi crashes within seconds of streaming; 2.4 GHz holds.</string>
     <string name="live_settings_replay">Instant replay</string>
     <string name="live_settings_replay_sub">How much of the live view Visor keeps in memory, ready to save.</string>
     <string name="live_settings_on_picture">On the picture</string>

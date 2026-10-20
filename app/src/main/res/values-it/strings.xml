@@ -223,8 +223,6 @@
     <string name="live_settings_resolution">Risoluzione</string>
     <string name="live_settings_bitrate">Bitrate</string>
     <string name="live_settings_frame_rate">Fotogrammi al secondo</string>
-    <string name="live_settings_band">Banda Wi-Fi</string>
-    <string name="live_settings_band_sub">A 5 GHz il Wi-Fi degli occhiali si blocca dopo pochi secondi di streaming; a 2,4 GHz regge.</string>
     <string name="live_settings_replay">Replay istantaneo</string>
     <string name="live_settings_replay_sub">Quanta parte della diretta Visor tiene in memoria, pronta da salvare.</string>
     <string name="live_settings_on_picture">Sull\'immagine</string>
