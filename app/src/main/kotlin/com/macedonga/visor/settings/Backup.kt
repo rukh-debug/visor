@@ -100,15 +100,11 @@ class Backups @Inject constructor(
                     .put("baseUrl", a.baseUrl).put("webSearch", a.webSearch).put("vision", a.vision).put("glassesVoice", a.glassesVoice)
                     .put("instructions", a.instructions).put("memoryMinutes", a.memoryMinutes)
                     .put("answerWaitSeconds", a.answerWaitSeconds).put("modelSet", a.modelSet)
+                    .put("listSetsTool", a.listSetsTool).put("useSetTool", a.useSetTool)
                     // The saved sets without their keys, like the integrations.
                     .put(
                         "sets",
-                        JSONArray(
-                            assistant.sets.value.map {
-                                JSONObject().put("name", it.name).put("provider", it.provider.name).put("baseUrl", it.baseUrl)
-                                    .put("model", it.model).put("linesModel", it.linesModel)
-                            },
-                        ),
+                        JSONArray(assistant.sets.value.map { it.json(key = false) }),
                     ),
             )
             .put("notifications", JSONObject().put("enabled", notify.enabled.value).put("muted", JSONArray(apps.muted.value.sorted())))
@@ -149,14 +145,7 @@ class Backups @Inject constructor(
         backup.optJSONObject("assistant")?.let { o ->
             o.optJSONArray("sets")?.let { a ->
                 assistant.restoreSets(
-                    (0 until a.length()).mapNotNull { i ->
-                        val s = a.optJSONObject(i) ?: return@mapNotNull null
-                        ModelSet(
-                            s.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null,
-                            runCatching { Provider.valueOf(s.getString("provider")) }.getOrDefault(Provider.CLAUDE),
-                            "", s.optString("baseUrl"), s.optString("model"), s.optString("linesModel"),
-                        )
-                    },
+                    (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { ModelSet.from(it, assistant.config.value) } },
                 )
             }
             assistant.update {
@@ -173,6 +162,8 @@ class Backups @Inject constructor(
                     memoryMinutes = o.optInt("memoryMinutes", it.memoryMinutes),
                     answerWaitSeconds = o.optInt("answerWaitSeconds", it.answerWaitSeconds),
                     modelSet = o.optString("modelSet", it.modelSet),
+                    listSetsTool = o.optBoolean("listSetsTool", it.listSetsTool),
+                    useSetTool = o.optBoolean("useSetTool", it.useSetTool),
                 )
             }
         }

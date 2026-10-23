@@ -120,21 +120,40 @@ fun AssistantSettingsScreen(open: (NavKey) -> Unit, model: AssistantViewModel = 
                 } else null,
             )
         }
-        item(key = "model") {
+        item(key = "sets") {
             Column {
-                SectionLabel(stringResource(R.string.ai_section_model))
+                SectionLabel(stringResource(R.string.ai_section_sets))
                 Rows(
                     {
-                        // Each set is a provider, key and models; the fields below are the one in use. The last pill adds one.
+                        // Each set is everything on this page below; the rows show the one in use. The last pill adds one.
                         PillsRow(
                             stringResource(R.string.ai_sets),
                             sets.map { it.name to it.name } + (NEW_SET to "+ " + stringResource(R.string.ai_sets_new)),
                             config.modelSet,
                             onPick = { name -> if (name == NEW_SET) sheet = "new-set" else model.store.use(name) },
                             onLongPick = { name -> if (name != NEW_SET) { setFor = name; sheet = "set" } },
-                            sub = stringResource(R.string.ai_sets_sub),
+                            sub = sets.firstOrNull { it.name == config.modelSet }?.about?.takeIf { it.isNotBlank() } ?: stringResource(R.string.ai_sets_sub),
                         )
                     },
+                    {
+                        ToggleRow(
+                            stringResource(R.string.ai_tool_list_sets), config.listSetsTool,
+                            onChange = { on -> model.store.update { it.copy(listSetsTool = on) } }, sub = stringResource(R.string.ai_tool_list_sets_sub),
+                        )
+                    },
+                    {
+                        ToggleRow(
+                            stringResource(R.string.ai_tool_use_set), config.useSetTool,
+                            onChange = { on -> model.store.update { it.copy(useSetTool = on) } }, sub = stringResource(R.string.ai_tool_use_set_sub),
+                        )
+                    },
+                )
+            }
+        }
+        item(key = "model") {
+            Column {
+                SectionLabel(stringResource(R.string.ai_section_model))
+                Rows(
                     {
                         PillsRow(
                             stringResource(R.string.ai_provider),
@@ -278,10 +297,16 @@ fun AssistantSettingsScreen(open: (NavKey) -> Unit, model: AssistantViewModel = 
             valid = { n -> n.isNotBlank() && sets.none { it.name == n.trim() } },
         )
         "set" -> SetSheet(
-            setFor, canForget = sets.size > 1,
+            setFor, sets.firstOrNull { it.name == setFor }?.about.orEmpty(), canForget = sets.size > 1,
             onRename = { sheet = "rename-set" },
+            onDescribe = { sheet = "describe-set" },
             onForget = { model.store.forget(setFor); sheet = null },
             onDismiss = { sheet = null },
+        )
+        "describe-set" -> TextSheet(
+            stringResource(R.string.ai_sets_about), sets.firstOrNull { it.name == setFor }?.about.orEmpty(),
+            onSave = { model.store.describe(setFor, it) }, onDismiss = { sheet = null },
+            sub = stringResource(R.string.ai_sets_about_sub), hint = stringResource(R.string.ai_sets_about_hint), singleLine = false,
         )
         "rename-set" -> TextSheet(
             stringResource(R.string.ai_sets_rename), setFor, onSave = { model.store.rename(setFor, it.trim()) }, onDismiss = { sheet = null },
@@ -303,12 +328,13 @@ fun AssistantSettingsScreen(open: (NavKey) -> Unit, model: AssistantViewModel = 
 
 private const val NEW_SET = "+new"
 
-/** What a long press on a set offers: a new name, or deleting it while another is left. */
+/** What a long press on a set offers: its note for the assistant, a new name, or deleting it while another is left. */
 @Composable
-private fun SetSheet(name: String, canForget: Boolean, onRename: () -> Unit, onForget: () -> Unit, onDismiss: () -> Unit) {
+private fun SetSheet(name: String, about: String, canForget: Boolean, onRename: () -> Unit, onDescribe: () -> Unit, onForget: () -> Unit, onDismiss: () -> Unit) {
     VisorSheet(onDismiss) {
-        SheetTitle(name)
+        SheetTitle(name, about.ifBlank { null })
         Row(Modifier.fillMaxWidth().padding(horizontal = SIDE), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ActionPill(stringResource(R.string.ai_sets_about), onDescribe, quiet = true)
             ActionPill(stringResource(R.string.ai_sets_rename), onRename, quiet = true)
             if (canForget) ActionPill(stringResource(R.string.ai_sets_forget), onForget, quiet = true)
         }

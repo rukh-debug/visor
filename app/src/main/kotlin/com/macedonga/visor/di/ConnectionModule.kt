@@ -193,7 +193,7 @@ object ConnectionModule {
         glassesConfig: GlassesConfig,
         phone: PhoneActions,
     ): Assistant = Assistant(
-        context, connection, Voice(context), Brain({ config.config.value }, diary, hub, config, phone), config, airship, diary,
+        context, connection, Voice(context), Brain({ config.config.value }, diary, hub, config, phone, config), config, airship, diary,
         live.wifiSession, live::frameNow,
         object : LiveAiCamera {
             // A Live view already running is the camera; only a stream Live AI opened is Live AI's to close.

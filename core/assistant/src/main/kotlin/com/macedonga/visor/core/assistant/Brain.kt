@@ -68,8 +68,10 @@ class Brain(
     private val hub: McpHub? = null,
     private val fields: FieldBook? = null,
     phone: Phone? = null,
+    sets: SetBook? = null,
 ) {
     private val phoneTools = phone?.let(::PhoneTools)
+    private val setTools = sets?.let { SetTools(it, config) }
 
     /** The answer to [question] after [past], with [image] (a JPEG) when the glasses sent one. Throws on any failure. */
     suspend fun answer(
@@ -89,6 +91,7 @@ class Brain(
             (if (audience == Audience.GLASSES) " The glasses are set to ${locale.getDisplayLanguage(Locale.ENGLISH)}." else "") +
             memoryPrompt() +
             phoneTools?.prompt.orEmpty() +
+            setTools?.prompt().orEmpty() +
             turn.box.prompt +
             (if (image != null && turn.box.tools.isNotEmpty()) PHOTO_PROMPT else "") +
             (if (note.isNotBlank()) " $note" else "") +
@@ -156,6 +159,10 @@ class Brain(
         if (book != null && name == "forget") {
             return if (book.forget(input.optString("id")) != null) ToolResult("forgotten", false) else ToolResult("no such fact", true)
         }
+        setTools?.run(name, input)?.let { (result, action) ->
+            action?.let(turn.actions::add)
+            return result
+        }
         phoneTools?.run(name, input)?.let { (result, action) ->
             action?.let(turn.actions::add)
             return result
@@ -197,7 +204,7 @@ class Brain(
             tools.put(JSONObject().put("name", "remember").put("description", REMEMBER_HELP).put("input_schema", schema("fact", FACT_HELP)))
             tools.put(JSONObject().put("name", "forget").put("description", FORGET_HELP).put("input_schema", schema("id", "The fact's id.")))
         }
-        if (turn != null) phoneTools?.tools?.forEach { (name, help, input) -> tools.put(JSONObject().put("name", name).put("description", help).put("input_schema", input)) }
+        if (turn != null) (phoneTools?.tools.orEmpty() + setTools?.tools().orEmpty()).forEach { (name, help, input) -> tools.put(JSONObject().put("name", name).put("description", help).put("input_schema", input)) }
         turn?.box?.tools?.forEach { t -> tools.put(JSONObject().put("name", t.name).put("description", t.help()).put("input_schema", t.tool.schema)) }
         var said = ""
         repeat(MAX_TOOL_ROUNDS) {
@@ -252,7 +259,7 @@ class Brain(
                 put(function("remember", REMEMBER_HELP, schema("fact", FACT_HELP)))
                 put(function("forget", FORGET_HELP, schema("id", "The fact's id.")))
             }
-            if (turn != null) phoneTools?.tools?.forEach { (name, help, input) -> put(function(name, help, input)) }
+            if (turn != null) (phoneTools?.tools.orEmpty() + setTools?.tools().orEmpty()).forEach { (name, help, input) -> put(function(name, help, input)) }
             // Some servers behind this API refuse a schema that names its own dialect.
             turn?.box?.tools?.forEach { t -> put(function(t.name, t.help(), JSONObject(t.tool.schema.toString()).apply { remove("\$schema") })) }
         }.takeIf { it.length() > 0 }
