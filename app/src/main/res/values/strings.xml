@@ -504,6 +504,8 @@
     <string name="ai_default_model">Default (%1$s)</string>
     <string name="ai_other_model">Another model by id…</string>
     <string name="ai_lines_model">Model for each day\'s lines</string>
+    <string name="ai_tools_in_text">Tools in the prompt</string>
+    <string name="ai_tools_in_text_sub">For a server that ignores tools, like a Claude Code proxy: Visor describes the tools to the model and runs the calls it writes.</string>
     <string name="ai_lines_model_sub">Writes the few lines on top of each day in Meta AI.</string>
     <string name="ai_same_model">The one above</string>
     <string name="ai_section_answers">How it answers</string>

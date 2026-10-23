@@ -238,7 +238,19 @@ class Brain(
         c: AssistantConfig, model: String, system: String, past: List<Exchange>, question: String, image: ByteArray?,
         tokens: Int, turn: Turn?,
     ): String {
-        val messages = JSONArray().put(JSONObject().put("role", "system").put("content", system))
+        var tools: JSONArray? = JSONArray().apply {
+            if (turn != null && book != null) {
+                put(function("remember", REMEMBER_HELP, schema("fact", FACT_HELP)))
+                put(function("forget", FORGET_HELP, schema("id", "The fact's id.")))
+            }
+            if (turn != null) (phoneTools?.tools.orEmpty() + setTools?.tools().orEmpty()).forEach { (name, help, input) -> put(function(name, help, input)) }
+            // Some servers behind this API refuse a schema that names its own dialect.
+            turn?.box?.tools?.forEach { t -> put(function(t.name, t.help(), JSONObject(t.tool.schema.toString()).apply { remove("\$schema") })) }
+        }.takeIf { it.length() > 0 }
+        // A server that ignores tools (a Claude Code proxy) is told them in words, and Visor runs what it writes.
+        val inText = c.toolsInText && turn != null && tools != null
+        val messages = JSONArray().put(JSONObject().put("role", "system").put("content", if (inText) system + textTools(tools!!) else system))
+        if (inText) tools = null
         for (e in past) {
             messages.put(JSONObject().put("role", "user").put("content", e.question))
             messages.put(JSONObject().put("role", "assistant").put("content", e.told()))
@@ -254,15 +266,6 @@ class Brain(
         messages.put(JSONObject().put("role", "user").put("content", user))
         val headers = if (c.apiKey.isBlank()) emptyMap() else mapOf("Authorization" to "Bearer ${c.apiKey}")
         val url = c.baseUrl.trimEnd('/') + "/chat/completions"
-        var tools: JSONArray? = JSONArray().apply {
-            if (turn != null && book != null) {
-                put(function("remember", REMEMBER_HELP, schema("fact", FACT_HELP)))
-                put(function("forget", FORGET_HELP, schema("id", "The fact's id.")))
-            }
-            if (turn != null) (phoneTools?.tools.orEmpty() + setTools?.tools().orEmpty()).forEach { (name, help, input) -> put(function(name, help, input)) }
-            // Some servers behind this API refuse a schema that names its own dialect.
-            turn?.box?.tools?.forEach { t -> put(function(t.name, t.help(), JSONObject(t.tool.schema.toString()).apply { remove("\$schema") })) }
-        }.takeIf { it.length() > 0 }
         var said = ""
         repeat(MAX_TOOL_ROUNDS) {
             val body = JSONObject().put("model", model).put("messages", messages).put("max_tokens", tokens)
@@ -280,6 +283,24 @@ class Brain(
             val message = choice.getJSONObject("message")
             val text = message.optString("content").takeUnless { message.isNull("content") }.orEmpty().replace(THINKING, "")
             check(text.isNotBlank() || choice.optString("finish_reason") != "length") { "the model used its whole answer thinking" }
+            if (inText) {
+                val written = TEXT_CALL.findAll(text).toList()
+                text.replace(TEXT_CALL, "").trim().takeIf { it.isNotBlank() }?.let { said = it }
+                if (written.isEmpty()) return said
+                messages.put(JSONObject().put("role", "assistant").put("content", text))
+                val results = written.joinToString("\n") { m ->
+                    val call = runCatching { JSONObject(m.groupValues[1].trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()) }.getOrNull()
+                    val name = call?.optString("name").orEmpty()
+                    val out = if (name.isEmpty()) ToolResult("not a tool call Visor can read; write it as JSON with name and arguments", true) else {
+                        val args = call!!.opt("arguments") ?: call.opt("input")
+                        val input = (args as? JSONObject) ?: runCatching { JSONObject(args as String) }.getOrDefault(JSONObject())
+                        runTool(name, input, turn!!)
+                    }
+                    "<tool_result name=\"$name\"${if (out.isError) " error=\"true\"" else ""}>${out.text}</tool_result>"
+                }
+                messages.put(JSONObject().put("role", "user").put("content", "$results\nNow answer the wearer, or call another tool."))
+                return@repeat
+            }
             if (text.isNotBlank()) said = text
             val calls = message.optJSONArray("tool_calls")
             if (calls == null || calls.length() == 0 || turn == null) return said
@@ -353,7 +374,23 @@ class Brain(
         }
     }
 
+    /** The tools in words, for a server that drops the tools field; [TEXT_CALL] reads the calls back. */
+    private fun textTools(tools: JSONArray): String = buildString {
+        append(" Tools: your server cannot call tools, so Visor, the app you run in, calls them for you. To call one, write ")
+        append("<tool_call>{\"name\": \"the_tool\", \"arguments\": {...}}</tool_call> in your reply, one tag per call, ")
+        append("and nothing meant for the wearer; Visor runs it and sends back <tool_result name=\"the_tool\">...</tool_result>, ")
+        append("then you answer or call another. Only these tools exist here; never use any other tool you may have, never ")
+        append("claim a tool ran without its result, and never mention the tags to the wearer. The tools:")
+        for (i in 0 until tools.length()) {
+            val f = tools.getJSONObject(i).getJSONObject("function")
+            append("\n- ").append(f.getString("name")).append(": ").append(f.optString("description"))
+            append(" Arguments, as JSON schema: ").append(f.optJSONObject("parameters") ?: JSONObject())
+        }
+    }
+
     private companion object {
+        /** A tool call written in the answer, for a server told its tools in words. */
+        val TEXT_CALL = Regex("(?s)<tool_call>(.*?)</tool_call>")
         /** Thinking a server left inline in the answer. */
         val THINKING = Regex("(?s)<think>.*?</think>")
         /** Visor's note on past answers, should the model copy it into its own. */

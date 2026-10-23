@@ -99,7 +99,7 @@ class Backups @Inject constructor(
                     .put("enabled", a.enabled).put("provider", a.provider.name).put("model", a.model).put("linesModel", a.linesModel)
                     .put("baseUrl", a.baseUrl).put("webSearch", a.webSearch).put("vision", a.vision).put("glassesVoice", a.glassesVoice)
                     .put("instructions", a.instructions).put("memoryMinutes", a.memoryMinutes)
-                    .put("answerWaitSeconds", a.answerWaitSeconds).put("modelSet", a.modelSet)
+                    .put("answerWaitSeconds", a.answerWaitSeconds).put("toolsInText", a.toolsInText).put("modelSet", a.modelSet)
                     .put("listSetsTool", a.listSetsTool).put("useSetTool", a.useSetTool)
                     // The saved sets without their keys, like the integrations.
                     .put(
@@ -161,6 +161,7 @@ class Backups @Inject constructor(
                     instructions = o.optString("instructions", it.instructions),
                     memoryMinutes = o.optInt("memoryMinutes", it.memoryMinutes),
                     answerWaitSeconds = o.optInt("answerWaitSeconds", it.answerWaitSeconds),
+                    toolsInText = o.optBoolean("toolsInText", it.toolsInText),
                     modelSet = o.optString("modelSet", it.modelSet),
                     listSetsTool = o.optBoolean("listSetsTool", it.listSetsTool),
                     useSetTool = o.optBoolean("useSetTool", it.useSetTool),
