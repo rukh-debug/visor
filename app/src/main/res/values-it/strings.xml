@@ -522,6 +522,10 @@
     <string name="ai_minutes">%1$d min</string>
     <string name="ai_answer_wait">Gli occhiali aspettano una risposta</string>
     <string name="ai_seconds">%1$d s</string>
+    <string name="ai_custom">Personalizzato</string>
+    <string name="ai_memory_custom_sub">Un numero di minuti, fino a %1$d. Visor lo tiene sul telefono, quindi va bene qualsiasi durata.</string>
+    <string name="ai_answer_wait_sub">Il loro limite chiude un turno a 60 s, quindi attese più lunghe non servono.</string>
+    <string name="ai_answer_wait_custom_sub">Tra %1$d e %2$d secondi. Gli occhiali chiudono un turno a 60 s comunque.</string>
     <string name="ai_instructions">Istruzioni</string>
     <string name="ai_instructions_none">Nessuna</string>
     <string name="ai_instructions_sub">Aggiunte a ogni domanda: come rivolgersi a te, cosa tenere a mente.</string>

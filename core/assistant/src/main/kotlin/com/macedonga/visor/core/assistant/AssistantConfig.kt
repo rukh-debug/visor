@@ -89,6 +89,13 @@ interface SetBook {
 /** The waits offered: 20 is the glasses' own; their watchdog ends a turn still processing at 60. */
 val ANSWER_WAITS = listOf(20, 30, 45, 55)
 
+/** A wait of one's own: under the glasses' 60 s watchdog, which ends the turn whatever this says. */
+val ANSWER_WAIT_RANGE = 10..59
+
+/** The windows offered for a conversation to stay open, and the range of one's own; only the phone keeps it. */
+val MEMORY_WINDOWS = listOf(5, 10, 20, 30)
+val MEMORY_WINDOW_RANGE = 1..1440
+
 class AssistantConfigStore(context: Context) : FieldBook, SetBook {
 
     private val prefs = context.getSharedPreferences("assistant", Context.MODE_PRIVATE)

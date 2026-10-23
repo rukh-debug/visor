@@ -523,6 +523,10 @@
     <string name="ai_minutes">%1$d min</string>
     <string name="ai_answer_wait">The glasses wait for an answer</string>
     <string name="ai_seconds">%1$d s</string>
+    <string name="ai_custom">Custom</string>
+    <string name="ai_memory_custom_sub">A number of minutes, up to %1$d. Visor keeps it on the phone, so any length works.</string>
+    <string name="ai_answer_wait_sub">Their own limit ends a turn at 60 s, so longer waits do nothing.</string>
+    <string name="ai_answer_wait_custom_sub">Between %1$d and %2$d seconds. The glasses end a turn at 60 s whatever this says.</string>
     <string name="ai_instructions">Instructions</string>
     <string name="ai_instructions_none">None</string>
     <string name="ai_instructions_sub">Added to every question: how to address you, what to keep in mind.</string>

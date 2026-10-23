@@ -234,20 +234,30 @@ fun AssistantSettingsScreen(open: (NavKey) -> Unit, model: AssistantViewModel = 
                     { VisorToggleRow(model.toggles.byId("vision")!!, sub = stringResource(R.string.ai_vision_sub)) },
                     if (claude) row { VisorToggleRow(model.toggles.byId("web")!!, sub = stringResource(R.string.ai_web_sub)) } else null,
                     {
+                        // A value of one's own is the last pill, chosen; tapping it again changes it.
+                        val presets = com.macedonga.visor.core.assistant.MEMORY_WINDOWS
+                        val own = config.memoryMinutes.takeIf { it !in presets }
                         PillsRow(
                             stringResource(R.string.ai_memory_window),
-                            listOf(5, 10, 20, 30).map { it to stringResource(R.string.ai_minutes, it) },
-                            config.memoryMinutes,
-                            onPick = { m -> model.store.update { it.copy(memoryMinutes = m) } },
+                            presets.map { it to stringResource(R.string.ai_minutes, it) } +
+                                (CUSTOM to (own?.let { stringResource(R.string.ai_minutes, it) } ?: stringResource(R.string.ai_custom))),
+                            own?.let { CUSTOM } ?: config.memoryMinutes,
+                            onPick = { m -> if (m == CUSTOM) sheet = "memory" else model.store.update { it.copy(memoryMinutes = m) } },
+                            onRepick = { m -> if (m == CUSTOM) sheet = "memory" },
                             sub = stringResource(R.string.ai_memory_window_sub),
                         )
                     },
                     {
+                        val presets = com.macedonga.visor.core.assistant.ANSWER_WAITS
+                        val own = config.answerWaitSeconds.takeIf { it !in presets }
                         PillsRow(
                             stringResource(R.string.ai_answer_wait),
-                            com.macedonga.visor.core.assistant.ANSWER_WAITS.map { it to stringResource(R.string.ai_seconds, it) },
-                            config.answerWaitSeconds,
-                            onPick = { s -> model.store.update { it.copy(answerWaitSeconds = s) } },
+                            presets.map { it to stringResource(R.string.ai_seconds, it) } +
+                                (CUSTOM to (own?.let { stringResource(R.string.ai_seconds, it) } ?: stringResource(R.string.ai_custom))),
+                            own?.let { CUSTOM } ?: config.answerWaitSeconds,
+                            onPick = { s -> if (s == CUSTOM) sheet = "wait" else model.store.update { it.copy(answerWaitSeconds = s) } },
+                            onRepick = { s -> if (s == CUSTOM) sheet = "wait" },
+                            sub = stringResource(R.string.ai_answer_wait_sub),
                         )
                     },
                     {
@@ -292,6 +302,19 @@ fun AssistantSettingsScreen(open: (NavKey) -> Unit, model: AssistantViewModel = 
         "url" -> TextSheet(
             stringResource(R.string.ai_base_url), config.baseUrl, onSave = { url -> model.store.update { it.copy(baseUrl = url.trim()) } },
             onDismiss = { sheet = null }, keyboard = KeyboardType.Uri, valid = { it.startsWith("http") },
+        )
+        "memory" -> NumberSheet(
+            stringResource(R.string.ai_memory_window), config.memoryMinutes, com.macedonga.visor.core.assistant.MEMORY_WINDOW_RANGE,
+            stringResource(R.string.ai_memory_custom_sub, com.macedonga.visor.core.assistant.MEMORY_WINDOW_RANGE.last),
+            onSave = { m -> model.store.update { it.copy(memoryMinutes = m) } }, onDismiss = { sheet = null },
+        )
+        "wait" -> NumberSheet(
+            stringResource(R.string.ai_answer_wait), config.answerWaitSeconds, com.macedonga.visor.core.assistant.ANSWER_WAIT_RANGE,
+            stringResource(
+                R.string.ai_answer_wait_custom_sub,
+                com.macedonga.visor.core.assistant.ANSWER_WAIT_RANGE.first, com.macedonga.visor.core.assistant.ANSWER_WAIT_RANGE.last,
+            ),
+            onSave = { s -> model.store.update { it.copy(answerWaitSeconds = s) } }, onDismiss = { sheet = null },
         )
         "instructions" -> TextSheet(
             stringResource(R.string.ai_instructions), config.instructions, onSave = { text -> model.store.update { it.copy(instructions = text) } },
@@ -407,3 +430,16 @@ private fun AssistantPhase.words(): String = stringResource(
         AssistantPhase.SPEAKING -> R.string.ai_phase_speaking
     },
 )
+
+/** The pill for a value of one's own. */
+private const val CUSTOM = -1
+
+/** A whole number in [range], typed. */
+@Composable
+private fun NumberSheet(title: String, initial: Int, range: IntRange, sub: String, onSave: (Int) -> Unit, onDismiss: () -> Unit) {
+    TextSheet(
+        title, initial.toString(), onSave = { text -> text.toIntOrNull()?.let(onSave) }, onDismiss = onDismiss, sub = sub,
+        keyboard = KeyboardType.Number, filter = { t -> t.filter(Char::isDigit).take(4) },
+        valid = { t -> t.toIntOrNull()?.let { it in range } == true },
+    )
+}

@@ -518,6 +518,10 @@
     <string name="ai_minutes">%1$d мин</string>
     <string name="ai_answer_wait">Очки ждут ответа</string>
     <string name="ai_seconds">%1$d с</string>
+    <string name="ai_custom">Своё</string>
+    <string name="ai_memory_custom_sub">Число минут, до %1$d. Visor хранит это на телефоне, так что подойдёт любая длина.</string>
+    <string name="ai_answer_wait_sub">Их собственный предел завершает ход через 60 с, так что дольше ждать нельзя.</string>
+    <string name="ai_answer_wait_custom_sub">От %1$d до %2$d секунд. Очки всё равно завершают ход через 60 с.</string>
     <string name="ai_instructions">Инструкции</string>
     <string name="ai_instructions_none">Нет</string>
     <string name="ai_instructions_sub">Добавляются к каждому вопросу: как к вам обращаться, что учитывать.</string>

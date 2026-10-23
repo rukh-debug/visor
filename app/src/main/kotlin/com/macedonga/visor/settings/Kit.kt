@@ -606,7 +606,7 @@ fun ValueRow(
     }
 }
 
-/** A few short options as pills under the title, the chosen one white. */
+/** A few short options as pills under the title, the chosen one white; [onRepick], when given, is a tap on the chosen one. */
 @Composable
 fun <T> PillsRow(
     title: String,
@@ -623,6 +623,7 @@ fun <T> PillsRow(
     dense: Boolean = false,
     busy: Boolean = false,
     onLongPick: ((T) -> Unit)? = null,
+    onRepick: ((T) -> Unit)? = null,
 ) {
     val host = LocalHost.current
     val blocked = stringResource(R.string.settings_locked)
@@ -637,6 +638,9 @@ fun <T> PillsRow(
                 } else if (picked != selected) {
                     host.haptics.toggle()
                     onPick(picked)
+                } else if (onRepick != null) {
+                    host.haptics.tick(0.5f)
+                    onRepick(picked)
                 }
             }
         },
