@@ -6,8 +6,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * The assistant's own tools for the wearer's saved sets, each on only when the wearer turns it on: list_config_sets tells
- * what each set is, switch_config_set puts one in use from the next question. The sets and their notes are read each turn,
+ * The assistant's own tools for the wearer's saved sets, each on only when the wearer turns it on: list_profiles tells
+ * what each set is, switch_profile puts one in use from the next question. The sets and their notes are read each turn,
  * so a set added or renamed a moment ago is already there.
  */
 internal class SetTools(private val book: SetBook, private val config: () -> AssistantConfig) {
@@ -16,9 +16,9 @@ internal class SetTools(private val book: SetBook, private val config: () -> Ass
     fun prompt(): String {
         val c = config()
         if (!c.listSetsTool && !c.useSetTool) return ""
-        return " The wearer keeps several assistant setups, called config sets; you are running on \"${c.modelSet}\"." +
+        return " The wearer keeps several assistant setups, called profiles (they may also say mode or setup); you are running on \"${c.modelSet}\"." +
             (if (c.useSetTool) " When they ask for another model or setup (smarter, faster, cheaper, local, offline, one by name), " +
-                "switch with switch_config_set; never switch on your own." else "")
+                "switch with switch_profile; never switch on your own." else "")
     }
 
     /** Name, description and input schema of each tool that is on. */
@@ -30,13 +30,13 @@ internal class SetTools(private val book: SetBook, private val config: () -> Ass
             if (c.useSetTool && sets.size > 1) {
                 add(
                     Triple(
-                        USE, USE_HELP + " The sets: " + sets.joinToString(" ") { "[${it.name}] ${it.short()}" },
+                        USE, USE_HELP + " The profiles: " + sets.joinToString(" ") { "[${it.name}] ${it.short()}" },
                         JSONObject().put("type", "object").put(
                             "properties",
                             JSONObject().put(
                                 "name",
                                 JSONObject().put("type", "string").put("enum", JSONArray(sets.map { it.name }))
-                                    .put("description", "The set's exact name, as listed."),
+                                    .put("description", "The profile's exact name, as listed."),
                             ),
                         ).put("required", JSONArray().put("name")),
                     ),
@@ -54,7 +54,7 @@ internal class SetTools(private val book: SetBook, private val config: () -> Ass
                 val wanted = input.optString("name").trim()
                 val set = book.sets.value.firstOrNull { it.name == wanted } ?: book.sets.value.firstOrNull { it.name.equals(wanted, ignoreCase = true) }
                 when {
-                    set == null -> ToolResult("No set is called \"$wanted\"; the sets are " + book.sets.value.joinToString { "\"${it.name}\"" } + ".", true) to null
+                    set == null -> ToolResult("No profile is called \"$wanted\"; the profiles are " + book.sets.value.joinToString { "\"${it.name}\"" } + ".", true) to null
                     set.name == c.modelSet -> ToolResult("\"${set.name}\" is already in use; nothing changed.", false) to null
                     else -> {
                         book.use(set.name)
@@ -62,7 +62,7 @@ internal class SetTools(private val book: SetBook, private val config: () -> Ass
                             "Switched to \"${set.name}\". It answers from the wearer's next question on; this answer still " +
                                 "comes from \"${c.modelSet}\". Tell the wearer in a few words.",
                             false,
-                        ) to ToolAction(VISOR, "Config set · ${set.name}", true)
+                        ) to ToolAction(VISOR, "Profile · ${set.name}", true)
                     }
                 }
             }
@@ -95,25 +95,25 @@ internal class SetTools(private val book: SetBook, private val config: () -> Ass
     }
 
     private companion object {
-        const val LIST = "list_config_sets"
-        const val USE = "switch_config_set"
+        const val LIST = "list_profiles"
+        const val USE = "switch_profile"
         const val VISOR = "Visor"
         const val LIST_HELP =
-            "List the wearer's saved config sets. A config set is a whole assistant setup kept under a name: the AI provider " +
+            "List the wearer's saved profiles. A profile is a whole assistant setup kept under a name: the AI provider " +
                 "and model that answer, the voice, whether the camera and web search are used, how long a conversation is " +
-                "remembered, how long the glasses wait, and the wearer's own instructions, with their note of what the set is " +
-                "for (for example heavy and smart but slow, fast and cheap, private on a local server). Says which set is in " +
+                "remembered, how long the glasses wait, and the wearer's own instructions, with their note of what the profile is " +
+                "for (for example heavy and smart but slow, fast and cheap, private on a local server). Says which profile is in " +
                 "use now. Call it when the wearer asks which setups or models they have, which one is answering, or how " +
-                "they differ, and before switching when their request does not plainly match one set's name or note. Do not " +
+                "they differ, and before switching when their request does not plainly match one profile's name or note. Do not " +
                 "call it for any other question."
         const val USE_HELP =
-            "Switch the assistant to another of the wearer's saved config sets: its provider, model, voice, camera and web " +
+            "Switch the assistant to another of the wearer's saved profiles: its provider, model, voice, camera and web " +
                 "search, memory window, answer wait and instructions all take over from the wearer's next question; this " +
-                "answer still comes from the current set. Call it only when the wearer asks to change model or setup, by name " +
-                "(\"use Work\") or by what they want (\"something smarter\", \"the fast one\", \"go local\", \"the cheap " +
-                "model\"). Pick the set whose note and model best fit the request: a stronger or larger model for harder, " +
+                "answer still comes from the current profile. Call it only when the wearer asks to change profile, mode, model or setup, by name " +
+                "(\"use Work\", \"switch to my Work profile\") or by what they want (\"something smarter\", \"the fast one\", \"go local\", \"the cheap " +
+                "model\"). Pick the profile whose note and model best fit the request: a stronger or larger model for harder, " +
                 "slower, deeper work; a smaller or faster one for quick answers; a local server for privacy or no internet. " +
-                "When two sets fit equally or none fits, ask the wearer which one instead of guessing. Never switch on your " +
-                "own to answer a question better, and never to the set already in use."
+                "When two profiles fit equally or none fits, ask the wearer which one instead of guessing. Never switch on your " +
+                "own to answer a question better, and never to the profile already in use."
     }
 }
