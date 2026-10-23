@@ -26,6 +26,8 @@ data class AssistantConfig(
     val memoryMinutes: Int = 10,
     // How long the glasses wait for an answer before they give up, written to them on connect.
     val answerWaitSeconds: Int = 45,
+    // Tools described in the prompt and run from tags in the reply, for an OpenAI-compatible server that ignores the tools field.
+    val toolsInText: Boolean = false,
     // The saved set the fields came from, and go back to as they change; empty, none.
     val modelSet: String = "",
     // The assistant's own tools for the saved sets: telling what they are, and switching to one when asked.
@@ -45,7 +47,7 @@ data class ModelSet(val name: String, val about: String, val settings: Assistant
         JSONObject().put("name", name).put("about", about).put("provider", s.provider.name).put("baseUrl", s.baseUrl)
             .put("model", s.model).put("linesModel", s.linesModel).put("webSearch", s.webSearch).put("vision", s.vision)
             .put("glassesVoice", s.glassesVoice).put("instructions", s.instructions).put("memoryMinutes", s.memoryMinutes)
-            .put("answerWaitSeconds", s.answerWaitSeconds)
+            .put("answerWaitSeconds", s.answerWaitSeconds).put("toolsInText", s.toolsInText)
             .apply { if (key) put("apiKey", s.apiKey) }
     }
 
@@ -71,6 +73,7 @@ data class ModelSet(val name: String, val about: String, val settings: Assistant
                     instructions = o.optString("instructions", rest.instructions),
                     memoryMinutes = o.optInt("memoryMinutes", rest.memoryMinutes),
                     answerWaitSeconds = o.optInt("answerWaitSeconds", rest.answerWaitSeconds),
+                    toolsInText = o.optBoolean("toolsInText", false),
                 ),
             )
         }
@@ -179,6 +182,7 @@ class AssistantConfigStore(context: Context) : FieldBook, SetBook {
             .putString("instructions", next.instructions)
             .putInt("memory_minutes", next.memoryMinutes)
             .putInt("answer_wait_s", next.answerWaitSeconds)
+            .putBoolean("tools_in_text", next.toolsInText)
             .putString("model_set", next.modelSet)
             .putBoolean("tool_list_sets", next.listSetsTool)
             .putBoolean("tool_use_set", next.useSetTool)
@@ -206,6 +210,7 @@ class AssistantConfigStore(context: Context) : FieldBook, SetBook {
             instructions = prefs.getString("instructions", d.instructions).orEmpty(),
             memoryMinutes = prefs.getInt("memory_minutes", d.memoryMinutes),
             answerWaitSeconds = prefs.getInt("answer_wait_s", d.answerWaitSeconds),
+            toolsInText = prefs.getBoolean("tools_in_text", d.toolsInText),
             modelSet = prefs.getString("model_set", d.modelSet).orEmpty(),
             listSetsTool = prefs.getBoolean("tool_list_sets", d.listSetsTool),
             useSetTool = prefs.getBoolean("tool_use_set", d.useSetTool),

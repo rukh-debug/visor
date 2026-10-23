@@ -499,6 +499,8 @@
     <string name="ai_default_model">По умолчанию (%1$s)</string>
     <string name="ai_other_model">Другая модель по id…</string>
     <string name="ai_lines_model">Модель для строк каждого дня</string>
+    <string name="ai_tools_in_text">Инструменты в промпте</string>
+    <string name="ai_tools_in_text_sub">Для сервера, который игнорирует инструменты, например прокси Claude Code: Visor описывает инструменты модели и выполняет вызовы, которые она пишет.</string>
     <string name="ai_lines_model_sub">Пишет несколько строк вверху каждого дня в Meta AI.</string>
     <string name="ai_same_model">Та же, что выше</string>
     <string name="ai_section_answers">Как отвечает</string>

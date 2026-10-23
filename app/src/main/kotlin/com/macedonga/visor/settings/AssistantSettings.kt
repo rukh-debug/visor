@@ -193,6 +193,12 @@ fun AssistantSettingsScreen(open: (NavKey) -> Unit, model: AssistantViewModel = 
                             onClick = { sheet = "lines" }, sub = stringResource(R.string.ai_lines_model_sub),
                         )
                     },
+                    if (!claude) row {
+                        ToggleRow(
+                            stringResource(R.string.ai_tools_in_text), config.toolsInText,
+                            onChange = { on -> model.store.update { it.copy(toolsInText = on) } }, sub = stringResource(R.string.ai_tools_in_text_sub),
+                        )
+                    } else null,
                     {
                         // Tests the key and the model: the answer, or why there is none, comes under the row.
                         val ready = config.enabled && check !is KeyCheck.Refused
