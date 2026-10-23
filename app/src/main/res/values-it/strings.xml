@@ -392,6 +392,7 @@
     <string name="section_data">Dati</string>
     <string name="section_phone">Telefono</string>
     <string name="section_places">Luoghi</string>
+    <string name="section_home">Home</string>
 
     <string name="sum_on">Attivo</string>
     <string name="sum_off">Spento</string>
@@ -540,6 +541,8 @@
 
     <string name="places_title">Annota dove sono state fatte le foto</string>
     <string name="places_sub">La posizione del telefono quando gli occhiali scattano mentre sono collegati. Resta sul telefono.</string>
+    <string name="home_photos_title">Foto recenti nella home</string>
+    <string name="home_photos_sub">I tuoi ultimi momenti e le anteprime di ciò che aspetta sugli occhiali.</string>
 
     <string name="access_lede">Cosa chiede Visor al telefono, e perché.</string>
     <string name="access_allow">Consenti</string>

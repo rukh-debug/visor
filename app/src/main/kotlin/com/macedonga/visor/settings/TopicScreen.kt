@@ -151,6 +151,8 @@ private fun PhotosPart(model: SettingsViewModel) {
         SectionLabel(stringResource(R.string.import_title), Modifier.padding(top = 0.dp))
         OptionCards(AutoImport.entries.map { Triple(it, stringResource(it.title), stringResource(it.detail)) }, mode, model.importChoice::set)
         Footnote(stringResource(R.string.import_note))
+        SectionLabel(stringResource(R.string.section_home))
+        Rows({ VisorToggleRow(model.toggles.byId("home_photos")!!, sub = stringResource(R.string.home_photos_sub)) })
         SectionLabel(stringResource(R.string.section_places))
         Rows({
             RowFrame(stringResource(R.string.places_title), onClick = null, sub = stringResource(R.string.places_sub)) {

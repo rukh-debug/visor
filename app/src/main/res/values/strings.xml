@@ -393,6 +393,7 @@
     <string name="section_data">Data</string>
     <string name="section_phone">Phone</string>
     <string name="section_places">Places</string>
+    <string name="section_home">Home</string>
 
     <string name="sum_on">On</string>
     <string name="sum_off">Off</string>
@@ -541,6 +542,8 @@
 
     <string name="places_title">Note where photos were taken</string>
     <string name="places_sub">The phone\'s location when the glasses capture while connected. Stays on the phone.</string>
+    <string name="home_photos_title">Recent photos on the home</string>
+    <string name="home_photos_sub">Your latest moments, and previews of what is waiting on the glasses.</string>
 
     <string name="access_lede">What Visor asks of the phone, and why.</string>
     <string name="access_allow">Allow</string>

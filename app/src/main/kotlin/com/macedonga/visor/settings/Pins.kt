@@ -70,6 +70,7 @@ class VisorToggles @Inject constructor(
     notify: NotifyChoice,
     assistant: AssistantConfigStore,
     live: LiveSettingsStore,
+    homePhotos: com.macedonga.visor.home.HomePhotos,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -97,6 +98,7 @@ class VisorToggles @Inject constructor(
             "live_auto", R.string.live_auto, R.string.live_settings_auto_sub, Topic.LIVE,
             live.settings.on { !it.manual }, { auto -> live.update { it.copy(manual = !auto) } },
         ),
+        VisorToggle("home_photos", R.string.home_photos_title, R.string.home_photos_sub, Topic.PHOTOS, homePhotos.shown, homePhotos::set),
     )
 
     fun byId(id: String): VisorToggle? = all.firstOrNull { it.id == id }

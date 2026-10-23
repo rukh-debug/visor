@@ -144,6 +144,7 @@ class HomeViewModel @Inject constructor(
     val looks: Looks,
     lastSeen: LastSeen,
     val star: StarAsk,
+    homePhotos: HomePhotos,
 ) : ViewModel() {
     /** The LE link is up: the glasses are right here, whatever RFCOMM says. */
     val nearby = keeper.connected
@@ -155,6 +156,7 @@ class HomeViewModel @Inject constructor(
     val lastBattery = lastSeen.battery
     val lastFacts = MutableStateFlow(readFacts())
     val lastPosture = lastSeen.posture
+    val photosShown = homePhotos.shown
 
     init {
         viewModelScope.launch {
@@ -251,6 +253,7 @@ fun HomeScreen(
     val lastPosture by model.lastPosture.collectAsStateWithLifecycle()
     val nearby by model.nearby.collectAsStateWithLifecycle()
     val paired by model.paired.collectAsStateWithLifecycle()
+    val photosShown by model.photosShown.collectAsStateWithLifecycle()
     val forced by StageDebug.mood.collectAsStateWithLifecycle()
     val variant by StageDebug.variant.collectAsStateWithLifecycle()
     val haptics = rememberHaptics()
@@ -343,6 +346,8 @@ fun HomeScreen(
         if (hadWaiting && !wantsWaiting) leaving = true
         hadWaiting = wantsWaiting
     }
+    // With the photos off there is no page to slide out.
+    LaunchedEffect(photosShown, leaving) { if (!photosShown) leaving = false }
     val gate = com.macedonga.visor.gallery.rememberImportGate()
     val onImport = { haptics.toggle(); gate { model.media.importAllNew() } }
 
@@ -445,8 +450,9 @@ fun HomeScreen(
             item(key = "stage") { Spacer(Modifier.fillMaxWidth().height(stageHeight)) }
             // At rest the latest moments and the four numbers fill the screen under the stage exactly, with air at the
             // bottom; the rest of the feed waits below.
-            val memories = moments(shots)
-            val waitingPage: (@Composable (Modifier) -> Unit)? = if (wantsWaiting || leaving) {
+            // Turned off, neither the moments nor the glasses' previews show; the pill still offers the import.
+            val memories = if (photosShown) moments(shots) else emptyList()
+            val waitingPage: (@Composable (Modifier) -> Unit)? = if (photosShown && (wantsWaiting || leaving)) {
                 { m ->
                     val shown = if (importing || leaving) importSet else fresh
                     WaitingCard(shown, previews, transferring || leaving, if (leaving) 1f else importProgress, onImport, m, problem, overBluetooth)
