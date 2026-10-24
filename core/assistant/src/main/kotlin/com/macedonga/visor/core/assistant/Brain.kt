@@ -26,6 +26,9 @@ import org.json.JSONObject
 /** Where an answer comes from. */
 enum class Provider { CLAUDE, OPENAI_COMPATIBLE }
 
+/** A server told its tools in words (a Claude Code proxy) reads messages as plain text: no pictures. */
+val AssistantConfig.textOnly: Boolean get() = provider == Provider.OPENAI_COMPATIBLE && toolsInText
+
 /** One question, its answer and what the tools did for it: the conversation behind the next question. */
 data class Exchange(val question: String, val answer: String, val actions: List<ToolAction> = emptyList())
 
@@ -255,7 +258,8 @@ class Brain(
             messages.put(JSONObject().put("role", "user").put("content", e.question))
             messages.put(JSONObject().put("role", "assistant").put("content", e.told()))
         }
-        val user: Any = if (image == null) question else JSONArray()
+        // A text-only server turns a list of parts into "[object Object],[object Object]", losing the question too.
+        val user: Any = if (image == null || c.textOnly) question else JSONArray()
             .put(JSONObject().put("type", "text").put("text", question))
             .put(
                 JSONObject().put("type", "image_url").put(

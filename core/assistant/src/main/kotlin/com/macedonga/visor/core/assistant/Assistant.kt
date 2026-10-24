@@ -762,10 +762,20 @@ class Assistant(
         record(TurnRecord(interaction, started, transcript))
         _phase.value = AssistantPhase.THINKING
         var problem = ""
+        // A server that takes text only (a Claude Code proxy, "Tools in the prompt") gets no photo: it would garble the question.
+        val textOnly = store.config.value.textOnly
+        val camera = store.config.value.vision && !textOnly
         // During the Live every question comes with the picture: the wearer is showing it.
-        val live = if (store.config.value.vision) runCatching { liveFrame() }.getOrNull()?.let { toModelJpeg(it) } else null
+        val live = if (camera) runCatching { liveFrame() }.getOrNull()?.let { toModelJpeg(it) } else null
         if (live != null) say("Answering with the Live view's picture")
-        val visualQuestion = live != null || (store.config.value.vision && (visual.glassesCaptured || visual.glassesWantImage || soundsVisual(transcript)))
+        val why = listOfNotNull(
+            "the glasses took one".takeIf { visual.glassesCaptured },
+            "the glasses asked for one".takeIf { visual.glassesWantImage },
+            "the question sounds visual".takeIf { soundsVisual(transcript) },
+        )
+        val visualQuestion = live != null || (camera && why.isNotEmpty())
+        if (live == null && visualQuestion) say("Photo for this question: ${why.joinToString(", ")}")
+        if (textOnly && store.config.value.vision && why.isNotEmpty()) say("No photo for this question: this server takes text only")
         val image = live ?: if (visualQuestion) photo(l, interaction, visual) else null
         if (image != null) {
             val file = File(photos, "$interaction.jpg")
