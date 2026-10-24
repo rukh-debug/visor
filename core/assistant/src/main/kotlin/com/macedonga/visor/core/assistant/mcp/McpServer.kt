@@ -120,9 +120,18 @@ class McpStore(context: Context) {
     @Synchronized
     fun remove(id: String) = save(_servers.value.filter { it.id != id })
 
+    /** Changes every server at once, as a profile switch does. */
+    @Synchronized
+    fun updateAll(change: (McpServer) -> McpServer) = save(_servers.value.map(change))
+
+    /** Told every change, before and after, at once: the profiles keep which servers and tools are on. */
+    var onChange: ((List<McpServer>, List<McpServer>) -> Unit)? = null
+
     private fun save(list: List<McpServer>) {
+        val before = _servers.value
         prefs.edit().putString(KEY, JSONArray(list.map { it.toJson() }).toString()).apply()
         _servers.value = list
+        onChange?.invoke(before, list)
     }
 
     private fun load(): List<McpServer> = runCatching {

@@ -162,7 +162,7 @@ object ConnectionModule {
 
     @Provides
     @Singleton
-    fun assistantConfig(@ApplicationContext context: Context): AssistantConfigStore = AssistantConfigStore(context)
+    fun assistantConfig(@ApplicationContext context: Context, mcp: McpStore): AssistantConfigStore = AssistantConfigStore(context, mcp)
 
     @Provides
     @Singleton

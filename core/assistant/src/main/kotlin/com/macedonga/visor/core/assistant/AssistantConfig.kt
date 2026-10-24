@@ -1,6 +1,8 @@
 package com.macedonga.visor.core.assistant
 
 import android.content.Context
+import com.macedonga.visor.core.assistant.mcp.McpServer
+import com.macedonga.visor.core.assistant.mcp.McpStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,8 +40,15 @@ data class AssistantConfig(
     fun kept() = copy(enabled = AssistantConfig().enabled, modelSet = "", listSetsTool = false, useSetTool = false)
 }
 
-/** Everything on the Meta AI page, kept under a name to switch back to, with the wearer's note of what it is for. */
-data class ModelSet(val name: String, val about: String, val settings: AssistantConfig) {
+/** One integration as a profile keeps it: on or off, and the tools turned off. */
+data class McpChoice(val on: Boolean, val off: Set<String> = emptySet())
+
+/**
+ * Everything on the Meta AI page, kept under a name to switch back to, with the wearer's note of what it is for.
+ * [mcp] is which integrations are on, by address (a server's id changes when a backup brings it back); null in a
+ * profile from before profiles kept them.
+ */
+data class ModelSet(val name: String, val about: String, val settings: AssistantConfig, val mcp: Map<String, McpChoice>? = null) {
     fun into(c: AssistantConfig) = settings.copy(enabled = c.enabled, modelSet = name, listSetsTool = c.listSetsTool, useSetTool = c.useSetTool)
 
     /** As kept on the phone, or in a backup without the key. */
@@ -49,6 +58,11 @@ data class ModelSet(val name: String, val about: String, val settings: Assistant
             .put("glassesVoice", s.glassesVoice).put("instructions", s.instructions).put("memoryMinutes", s.memoryMinutes)
             .put("answerWaitSeconds", s.answerWaitSeconds).put("toolsInText", s.toolsInText)
             .apply { if (key) put("apiKey", s.apiKey) }
+            .apply {
+                mcp?.let { m ->
+                    put("mcp", JSONObject().apply { m.forEach { (url, c) -> put(url, JSONObject().put("on", c.on).put("off", JSONArray(c.off.sorted()))) } })
+                }
+            }
     }
 
     companion object {
@@ -75,6 +89,13 @@ data class ModelSet(val name: String, val about: String, val settings: Assistant
                     answerWaitSeconds = o.optInt("answerWaitSeconds", rest.answerWaitSeconds),
                     toolsInText = o.optBoolean("toolsInText", false),
                 ),
+            ).copy(
+                mcp = o.optJSONObject("mcp")?.let { m ->
+                    m.keys().asSequence().associateWith { url ->
+                        val c = m.getJSONObject(url)
+                        McpChoice(c.optBoolean("on", true), c.optJSONArray("off")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() }.orEmpty())
+                    }
+                },
             )
         }
     }
@@ -96,7 +117,7 @@ val ANSWER_WAIT_RANGE = 10..59
 val MEMORY_WINDOWS = listOf(5, 10, 20, 30)
 val MEMORY_WINDOW_RANGE = 1..1440
 
-class AssistantConfigStore(context: Context) : FieldBook, SetBook {
+class AssistantConfigStore(context: Context, private val mcp: McpStore) : FieldBook, SetBook {
 
     private val prefs = context.getSharedPreferences("assistant", Context.MODE_PRIVATE)
 
@@ -117,18 +138,51 @@ class AssistantConfigStore(context: Context) : FieldBook, SetBook {
                 update { it.copy(modelSet = name) }
             }
         }
+        // Integrations were the same for every profile before; each profile starts with them as they are.
+        fillMcp()
+        mcp.onChange = ::mcpChanged
+    }
+
+    /** What the integrations are now, as a profile keeps them. */
+    private fun mcpNow(): Map<String, McpChoice> = mcp.servers.value.associate { it.url to McpChoice(it.enabled, it.off) }
+
+    private fun fillMcp() {
+        if (_sets.value.any { it.mcp == null }) keepSets(_sets.value.map { if (it.mcp == null) it.copy(mcp = mcpNow()) else it })
+    }
+
+    /** Integrations turned on or off go into the profile in use; one moved to a new address or deleted, into every profile. */
+    @Synchronized
+    private fun mcpChanged(before: List<McpServer>, after: List<McpServer>) {
+        val moved = before.mapNotNull { b -> after.firstOrNull { it.id == b.id && it.url != b.url }?.let { b.url to it.url } }.toMap()
+        val gone = before.filter { b -> after.none { it.id == b.id } }.map { it.url }.toSet()
+        val now = mcpNow()
+        val current = _config.value.modelSet
+        val next = _sets.value.map { s ->
+            if (s.name == current) return@map s.copy(mcp = now)
+            val m = s.mcp ?: return@map s
+            if (moved.isEmpty() && gone.isEmpty()) s
+            else s.copy(mcp = m.filterKeys { it !in gone }.mapKeys { (url) -> moved[url] ?: url })
+        }
+        if (next != _sets.value) keepSets(next)
+    }
+
+    /** Turns the integrations to what [set] keeps; one it never had is off there. */
+    private fun useMcp(set: ModelSet) {
+        val m = set.mcp ?: return mcpChanged(mcp.servers.value, mcp.servers.value)
+        mcp.updateAll { s -> m[s.url]?.let { s.copy(enabled = it.on, off = it.off) } ?: s.copy(enabled = false) }
     }
 
     /** Puts a saved set in use: everything on the page becomes what it keeps. */
     override fun use(name: String) {
         val set = _sets.value.firstOrNull { it.name == name } ?: return
         update { set.into(it) }
+        useMcp(set)
     }
 
     /** A new set in use at once, without a provider's key or models yet; how it answers starts as the one in use. */
     fun create(name: String) {
         val d = AssistantConfig()
-        val set = ModelSet.of(name, "", _config.value.copy(provider = d.provider, apiKey = "", baseUrl = d.baseUrl, model = "", linesModel = ""))
+        val set = ModelSet.of(name, "", _config.value.copy(provider = d.provider, apiKey = "", baseUrl = d.baseUrl, model = "", linesModel = "")).copy(mcp = mcpNow())
         keepSets(_sets.value.filter { it.name != name } + set)
         update { set.into(it) }
     }
@@ -149,13 +203,17 @@ class AssistantConfigStore(context: Context) : FieldBook, SetBook {
         val left = _sets.value.filter { it.name != name }
         if (left.isEmpty()) return
         keepSets(left)
-        if (_config.value.modelSet == name) update { left.first().into(it) }
+        if (_config.value.modelSet == name) {
+            update { left.first().into(it) }
+            useMcp(left.first())
+        }
     }
 
     /** Sets from a backup, keys left as they are here: a new name is added, a known one keeps its key. */
     fun restoreSets(sets: List<ModelSet>) {
         val here = _sets.value.associateBy { it.name }
         keepSets(_sets.value.filter { s -> sets.none { it.name == s.name } } + sets.map { it.copy(settings = it.settings.copy(apiKey = here[it.name]?.settings?.apiKey.orEmpty())) })
+        fillMcp()
     }
 
     override fun fields(key: String): Fields? = runCatching {

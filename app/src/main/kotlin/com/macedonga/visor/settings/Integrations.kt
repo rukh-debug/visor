@@ -97,7 +97,7 @@ fun IntegrationsScreen(open: (NavKey) -> Unit, model: IntegrationsViewModel = hi
         servers.filter { it.enabled && statuses[it.id]?.phase != McpStatus.Phase.READY }.forEach { model.hub.check(it.id) }
         onPauseOrDispose { }
     }
-    SettingsPage(stringResource(R.string.mcp_title)) {
+    SettingsPage(stringResource(R.string.mcp_title), stringResource(R.string.mcp_lede)) {
         item(key = "servers") {
             Rows(
                 *servers.map { s -> @Composable { ServerRow(s, statuses[s.id]) { open(IntegrationKey(s.id)) } } }.toTypedArray(),

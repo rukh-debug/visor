@@ -474,7 +474,7 @@
     <string name="ai_section_model">Model</string>
     <string name="ai_sets">Profile</string>
     <string name="ai_section_sets">Profiles</string>
-    <string name="ai_sets_sub">Everything below on this page belongs to the profile picked here, and changes go back into it. Long-press one to describe, rename or delete it.</string>
+    <string name="ai_sets_sub">Everything below on this page belongs to the profile picked here, integrations on or off too, and changes go back into it. Long-press one to describe, rename or delete it.</string>
     <string name="ai_sets_new">New</string>
     <string name="ai_sets_new_title">New profile</string>
     <string name="ai_sets_new_sub">Starts without a provider or model: pick them below. How it answers starts as the profile in use, which stays as it is.</string>
@@ -736,6 +736,7 @@
     <!-- Integrations: MCP servers whose tools the assistant uses. -->
     <string name="mcp_title">Integrations</string>
     <string name="mcp_row_none">MCP servers</string>
+    <string name="mcp_lede">Which servers and tools are on belongs to the profile in use. The servers and their sign-ins are shared by every profile.</string>
     <plurals name="mcp_connected">
         <item quantity="one">%d connected</item>
         <item quantity="other">%d connected</item>
