@@ -23,6 +23,9 @@ data class AssistantConfig(
     val vision: Boolean = true,
     // Answers in the glasses' own voice, the one that reads notifications; off, the phone's voice streamed to them.
     val glassesVoice: Boolean = true,
+    // The language the wearer speaks, as a BCP 47 tag, when the glasses have no pack for it; empty, the glasses' own.
+    // The phone then hears every question, the model answers in it, and the phone's voice speaks.
+    val speechLanguage: String = "",
     val instructions: String = "",
     // How long a conversation is remembered after its last question.
     val memoryMinutes: Int = 10,
@@ -55,7 +58,7 @@ data class ModelSet(val name: String, val about: String, val settings: Assistant
     fun json(key: Boolean = true): JSONObject = settings.let { s ->
         JSONObject().put("name", name).put("about", about).put("provider", s.provider.name).put("baseUrl", s.baseUrl)
             .put("model", s.model).put("linesModel", s.linesModel).put("webSearch", s.webSearch).put("vision", s.vision)
-            .put("glassesVoice", s.glassesVoice).put("instructions", s.instructions).put("memoryMinutes", s.memoryMinutes)
+            .put("glassesVoice", s.glassesVoice).put("speechLanguage", s.speechLanguage).put("instructions", s.instructions).put("memoryMinutes", s.memoryMinutes)
             .put("answerWaitSeconds", s.answerWaitSeconds).put("toolsInText", s.toolsInText)
             .apply { if (key) put("apiKey", s.apiKey) }
             .apply {
@@ -84,6 +87,7 @@ data class ModelSet(val name: String, val about: String, val settings: Assistant
                     webSearch = o.optBoolean("webSearch", rest.webSearch),
                     vision = o.optBoolean("vision", rest.vision),
                     glassesVoice = o.optBoolean("glassesVoice", rest.glassesVoice),
+                    speechLanguage = o.optString("speechLanguage", rest.speechLanguage),
                     instructions = o.optString("instructions", rest.instructions),
                     memoryMinutes = o.optInt("memoryMinutes", rest.memoryMinutes),
                     answerWaitSeconds = o.optInt("answerWaitSeconds", rest.answerWaitSeconds),
@@ -106,6 +110,12 @@ interface SetBook {
     val sets: StateFlow<List<ModelSet>>
     fun use(name: String)
 }
+
+/** Languages the wearer can speak that the glasses have no pack for, heard and spoken by the phone (issue #38). */
+val SPEECH_LANGUAGES = listOf(
+    "ru-RU", "uk-UA", "pl-PL", "cs-CZ", "ro-RO", "hu-HU", "el-GR", "sv-SE", "da-DK", "nb-NO", "fi-FI",
+    "he-IL", "ar-SA", "vi-VN", "id-ID", "th-TH",
+)
 
 /** The waits offered: 20 is the glasses' own; their watchdog ends a turn still processing at 60. */
 val ANSWER_WAITS = listOf(20, 30, 45, 55)
@@ -244,6 +254,7 @@ class AssistantConfigStore(context: Context, private val mcp: McpStore) : FieldB
             .putBoolean("web_search", next.webSearch)
             .putBoolean("vision", next.vision)
             .putBoolean("glasses_voice", next.glassesVoice)
+            .putString("speech_language", next.speechLanguage)
             .putString("instructions", next.instructions)
             .putInt("memory_minutes", next.memoryMinutes)
             .putInt("answer_wait_s", next.answerWaitSeconds)
@@ -272,6 +283,7 @@ class AssistantConfigStore(context: Context, private val mcp: McpStore) : FieldB
             webSearch = prefs.getBoolean("web_search", d.webSearch),
             vision = prefs.getBoolean("vision", d.vision),
             glassesVoice = prefs.getBoolean("glasses_voice", d.glassesVoice),
+            speechLanguage = prefs.getString("speech_language", d.speechLanguage).orEmpty(),
             instructions = prefs.getString("instructions", d.instructions).orEmpty(),
             memoryMinutes = prefs.getInt("memory_minutes", d.memoryMinutes),
             answerWaitSeconds = prefs.getInt("answer_wait_s", d.answerWaitSeconds),

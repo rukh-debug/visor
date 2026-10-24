@@ -43,7 +43,16 @@ enum class CaptureType { PHOTO, LIVE, VIDEO, OTHER }
  * One entry of the glasses' list. A photo carries a thumbnail, the HEIC still and two sensor logs; a live photo
  * (kind 0) carries a short HEVC clip as well; a video carries the video, one poster still and the logs.
  */
-data class Capture(val handle: String, val kindCode: Long, val assets: List<Asset>, val timestampNs: Long) {
+data class Capture(
+    val handle: String,
+    val kindCode: Long,
+    val assets: List<Asset>,
+    val timestampNs: Long,
+    // Taken with the media orientation at landscape: the glasses keep the portrait frame, the phone crops it.
+    val landscape: Boolean = false,
+    // The video stabilization it was taken with: 0 Auto-select, 1 High, 2 Medium, 3 Low.
+    val steadiness: Int = 0,
+) {
     private val stills: List<Asset> get() = assets.filter { it.kind == KIND_STILL }.sortedBy { it.size }
 
     /** The full-resolution still. A video's only still is its poster, not a photo. */
@@ -118,7 +127,12 @@ fun parseCapture(payload: ByteArray): Capture? {
     }
     val meta = f.field(info, 12)?.let(f::target)?.takeIf { f.isTable(it.toLong()) }
     val timestamp = meta?.let { f.number(f.field(it, 4), wide = true) } ?: 0L
-    return Capture(handle, f.number(f.field(info, 8)), assets, timestamp)
+    // The capture's aspect ratio, a byte: 0 portrait 3:4, 1 landscape 4:3.
+    val landscape = meta?.let { f.byte(f.field(it, 34)) } == 1
+    // The capture's video settings, a table: 4 the stabilization, 6 the resolution mode.
+    val video = meta?.let { f.field(it, 32) }?.let(f::target)?.takeIf { f.isTable(it.toLong()) }
+    val steadiness = video?.let { f.byte(f.field(it, 4)) } ?: 0
+    return Capture(handle, f.number(f.field(info, 8)), assets, timestamp, landscape, steadiness)
 }
 
 /** A flatbuffer read by its own vtables. Port of capture_list.py's `_Buf`. */
@@ -181,6 +195,8 @@ private class Flat(private val b: ByteArray) {
             table.toInt()
         }
     }
+
+    fun byte(fp: Int?): Int = if (fp != null && fits(fp.toLong(), 1)) b[fp].toInt() and 0xFF else 0
 
     fun number(fp: Int?, wide: Boolean = false): Long = when {
         fp == null -> 0

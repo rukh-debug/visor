@@ -133,6 +133,8 @@ class GlassesService : Service() {
             com.macedonga.visor.language.keepAssistantConfig(scope, connection, glassesConfig, media, glassesSettings, assistantConfig, log)
             developer.keep(scope)
             com.macedonga.visor.settings.keepCameraInLine(scope, glassesSettings, assistantConfig, log)
+            com.macedonga.visor.settings.keepLandscape(scope, connection, glassesSettings, glassesConfig, media, log)
+            media.steadiedOnGlasses = com.macedonga.visor.settings.steadiedOnGlasses(glassesSettings)
             notifications = scope.launch {
                 var shown: Any? = null
                 combine(connection.state, liveNow(), outside.glimpse, ::Triple).collect { (state, now, glimpse) ->

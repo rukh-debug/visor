@@ -957,4 +957,6 @@
     <string name="live_problem_vpn">Una VPN tiene Visor fuori dalla rete degli occhiali. Escludi Visor dalla VPN.</string>
     <string name="live_drops">Lo streaming si interrompe spesso</string>
     <string name="live_use_glasses_host">Usa il Wi-Fi degli occhiali</string>
+    <string name="ai_speech_language">Lingua in cui parli</string>
+    <string name="ai_speech_language_glasses">La lingua degli occhiali</string>
 </resources>
