@@ -163,6 +163,12 @@ class Assistant(
             sendNetEvent(l, m0, netEvent(id, body))
         }
 
+        override suspend fun close(interaction: String) {
+            val l = link ?: return
+            val m0 = l.m0 ?: return
+            if (interaction.isNotEmpty()) sendNetEvent(l, m0, netEvent(EV_MWA_VOICE_INTERACTION_COMPLETE, interactionComplete(interaction, "")))
+        }
+
         override suspend fun answer(subInteraction: String, question: String) {
             link?.let { liveAnswer(it, subInteraction, question) }
         }
@@ -906,7 +912,7 @@ class Assistant(
         val text = reply.text
         update(sub) { it.copy(answer = text, problem = problem, modelMs = System.currentTimeMillis() - started, remembered = reply.remembered, actions = reply.actions) }
         try {
-            deliver(l, sub, question, text)
+            deliver(l, sub, question, text, live = true)
         } catch (error: Exception) {
             say("Live AI: the answer did not reach the glasses: ${error.message}")
         }
@@ -970,9 +976,9 @@ class Assistant(
     }
 
     /** Speak [text] as [interaction]'s answer in the voice chosen. The milliseconds of audio sent, 0 in the glasses' voice. */
-    private suspend fun deliver(l: Link, interaction: String, transcript: String, text: String): Long {
-        // The glasses' own voice speaks only their own language.
-        if (store.config.value.glassesVoice && !l.sessionTurn && store.config.value.speechLanguage.isEmpty()) {
+    private suspend fun deliver(l: Link, interaction: String, transcript: String, text: String, live: Boolean = false): Long {
+        // The glasses' own voice speaks only their own language. In Live AI they speak no text from the phone, only audio.
+        if (store.config.value.glassesVoice && !live && !l.sessionTurn && store.config.value.speechLanguage.isEmpty()) {
             speakOnGlasses(l, interaction, transcript, text)
             return 0
         }

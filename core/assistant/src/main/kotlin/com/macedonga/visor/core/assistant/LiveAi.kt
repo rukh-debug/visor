@@ -19,6 +19,9 @@ internal interface LiveAiHost {
     /** A NetEvent on the message channel. */
     suspend fun event(id: Int, body: ByteArray)
 
+    /** The wearer asked to stop: close [interaction] on the glasses as the server ends a turn. */
+    suspend fun close(interaction: String)
+
     /** One turn: the model sees the camera and hears [question]; the answer is spoken as [subInteraction]. */
     suspend fun answer(subInteraction: String, question: String)
 
@@ -73,6 +76,8 @@ internal class LiveAi(private val context: Context, private val scope: Coroutine
         heardAudio = false
         micChunks = 0
         _phase.value = LiveAiPhase.STARTING
+        // Some glasses open the interaction without ev289 first; the camera is still the phone's to open.
+        host.cameraOn()
         // As the server answers a new interaction: created, connected (twice), then the stream's first ack.
         val creation = ThriftWriter().str(1, id).bool(2, true).bool(3, false)
             .str(4, UUID.randomUUID().toString().uppercase()).str(5, SERVER_HOST)
@@ -127,6 +132,15 @@ internal class LiveAi(private val context: Context, private val scope: Coroutine
         if (!active) return
         val sub = UUID.randomUUID().toString()
         host.note("Live AI: heard \"$text\" ($startMs to $endMs ms)")
+        // The glasses hear nothing themselves in Live AI, "Hey Meta, stop" included: the phone ends it.
+        if (STOP.containsMatchIn(text)) {
+            val id = interaction
+            scope.launch {
+                runCatching { host.close(id) }.onFailure { host.note("Live AI: could not close on the glasses: ${it.message}") }
+                end("the wearer said \"$text\"")
+            }
+            return
+        }
         scope.launch {
             host.event(EV_START_OF_USER_SPEECH, ThriftWriter().str(1, sub).i64(2, startMs).done())
             host.event(EV_FINAL_TRANSCRIPTION, ThriftWriter().str(1, text).i32(2, 0).str(4, "").bool(7, false).str(8, sub).i64(13, endMs).done())
@@ -167,5 +181,8 @@ internal class LiveAi(private val context: Context, private val scope: Coroutine
         const val PAYLOAD_AUDIO = 1
         const val PAYLOAD_VIDEO = 2
         const val KEEPALIVE_MS = 5_000L
+
+        // "Stop Live AI" anywhere in what was said, or a bare "stop", "exit", "that's all".
+        val STOP = Regex("\\b(stop|end|exit|quit|close|turn off)( the)? live ?ai\\b|^\\W*(hey meta\\W+)?(stop|exit|quit|end|that'?s all|goodbye|bye)(\\W+(stop|now|please))*\\W*$", RegexOption.IGNORE_CASE)
     }
 }
