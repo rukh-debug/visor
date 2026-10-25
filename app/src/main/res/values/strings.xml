@@ -897,6 +897,12 @@
     <string name="ww_failed_title">The glasses did not take it</string>
     <string name="ww_failed_body">Try again with the glasses on, in a quiet place.</string>
     <string name="ww_no_link">Turn on the assistant in Visor first.</string>
+    <string name="ww_replaces">The glasses keep one custom wake word beside “Hey Meta”. A new one replaces “%1$s”.</string>
+    <string name="ww_remove">Remove “%1$s”</string>
+    <string name="ww_removing">Removing your wake word…</string>
+    <string name="ww_removed_title">Wake word removed</string>
+    <string name="ww_removed_body">The glasses wake on “Hey Meta” only.</string>
+    <string name="ww_remove_failed">The glasses did not remove it. Try again with them connected.</string>
     <string name="feature_gc">Group conversations</string>
     <string name="feature_gc_about">Talk with a few people nearby who wear Meta glasses, glasses to glasses. Without Meta\'s key the group is not encrypted: anyone nearby with the right equipment can listen.</string>
     <string name="feature_gc_use">Say “Hey Meta, start a group conversation”. The others say “Hey Meta, join the group conversation”.</string>

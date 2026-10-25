@@ -51,6 +51,7 @@ import com.macedonga.visor.core.settings.asBool
 import com.macedonga.visor.features.ChoicePill
 import com.macedonga.visor.features.StoryWords
 import com.macedonga.visor.setup.BigPill
+import com.macedonga.visor.setup.QuietButton
 import com.macedonga.visor.stage.LightLook
 import com.macedonga.visor.stage.LocalStage
 import com.macedonga.visor.stage.Mood
@@ -78,6 +79,8 @@ sealed interface WakeStep {
     data class Take(val index: Int, val recording: Boolean = false, val missed: Boolean = false) : WakeStep
     data object Enrolling : WakeStep
     data class Enrolled(val phrase: String) : WakeStep
+    data object Removing : WakeStep
+    data object Removed : WakeStep
 
     /** [why] is the glasses' own words when they gave any, else [fallback]. */
     data class Failed(val why: String?, val fallback: Int) : WakeStep
@@ -85,7 +88,8 @@ sealed interface WakeStep {
 
 /**
  * A custom wake word, enrolled on the glasses as the Meta app does it on the device: the phrase, three recordings on
- * the glasses' microphone, and the glasses' answer. The model outlives the screen, so each visit starts over.
+ * the glasses' microphone, and the glasses' answer. The glasses keep one beside "Hey Meta", so a new one replaces the
+ * old. The model outlives the screen, so each visit starts over.
  */
 @HiltViewModel
 class WakeWordModel @Inject constructor(
@@ -124,9 +128,33 @@ class WakeWordModel @Inject constructor(
         }
     }
 
+    // The Meta app writes the phrase to assistant_wakeword once the glasses take it, and blanks it when it removes one.
     private fun remember(name: String) {
         prefs.edit().putString(ENROLLED, name).apply()
         _enrolled.value = name
+        if (settings.value(PHRASE_KEY) != name) settings.write(PHRASE_KEY, name)
+    }
+
+    /** The custom wake word the glasses have now: their own setting, else what Visor kept; null when there is none. */
+    fun current(stored: Map<String, String>): String? {
+        if (stored[CWW_KEY]?.let(::asBool) == false) return null
+        return stored[PHRASE_KEY]?.takeIf { it.isNotBlank() } ?: _enrolled.value
+    }
+
+    fun remove() {
+        leave()
+        clips.clear()
+        _step.value = WakeStep.Removing
+        viewModelScope.launch {
+            if (!assistant.wakeWord.clear()) {
+                _step.value = WakeStep.Failed(null, R.string.ww_remove_failed)
+                return@launch
+            }
+            prefs.edit().remove(ENROLLED).apply()
+            _enrolled.value = null
+            settings.write(PHRASE_KEY, "")
+            _step.value = WakeStep.Removed
+        }
     }
 
     fun enter() {
@@ -246,13 +274,13 @@ fun WakeWordScreen(model: WakeWordModel = hiltViewModel()) = SettingsHost(seeThr
     val take = step as? WakeStep.Take
     val recording = take?.recording == true
     cue.yaw = if (take != null) FRONT_YAW else 0f
-    cue.orbit = step == WakeStep.Enrolling
+    cue.orbit = step == WakeStep.Enrolling || step == WakeStep.Removing
     cue.source = if (recording) "front" else null
     cue.inward = true
     cue.level = if (recording) 0.25f + 0.75f * level else 0f
     val look = when {
         recording -> LightLook(colors.lightNeutral, colors.lightWarm, level = 0.85f, spread = 1f, breathSeconds = 2.4f, breathDepth = 0.15f)
-        step == WakeStep.Enrolling -> lookOf(Mood.SEARCHING, colors).copy(breathSeconds = 2.2f)
+        step == WakeStep.Enrolling || step == WakeStep.Removing -> lookOf(Mood.SEARCHING, colors).copy(breathSeconds = 2.2f)
         step is WakeStep.Failed -> lookOf(Mood.FAR, colors)
         else -> lookOf(Mood.CONNECTED, colors)
     }
@@ -326,7 +354,12 @@ private fun WakeStepContent(step: WakeStep, phrase: String, model: WakeWordModel
     val current by model.step.collectAsStateWithLifecycle()
     when (step) {
         WakeStep.Phrase -> {
-            StoryWords(stringResource(R.string.ww_phrase_title), stringResource(R.string.ww_phrase_body))
+            val stored by model.settings.state.collectAsStateWithLifecycle()
+            val existing = model.current(stored.stored)
+            StoryWords(
+                stringResource(R.string.ww_phrase_title),
+                stringResource(R.string.ww_phrase_body) + (existing?.let { "\n\n" + stringResource(R.string.ww_replaces, it) } ?: ""),
+            )
             Box(Modifier.padding(top = 20.dp)) {
                 ChoicePill(phrase.ifEmpty { stringResource(R.string.ww_phrase_short) }, edit)
             }
@@ -336,6 +369,11 @@ private fun WakeStepContent(step: WakeStep, phrase: String, model: WakeWordModel
             }
             Box(Modifier.padding(top = 28.dp)) {
                 BigPill(stringResource(R.string.ww_continue), model::begin, enabled = phrase.length >= WakeWordModel.MIN_LETTERS)
+            }
+            if (existing != null) {
+                Box(Modifier.padding(top = 8.dp)) {
+                    QuietButton(stringResource(R.string.ww_remove, existing), model::remove)
+                }
             }
         }
         is WakeStep.Take -> {
@@ -353,6 +391,10 @@ private fun WakeStepContent(step: WakeStep, phrase: String, model: WakeWordModel
             }
         }
         WakeStep.Enrolling -> StoryWords(stringResource(R.string.ww_enrolling), null)
+        WakeStep.Removing -> StoryWords(stringResource(R.string.ww_removing), null)
+        WakeStep.Removed -> StoryWords(stringResource(R.string.ww_removed_title), stringResource(R.string.ww_removed_body)) {
+            BigPill(stringResource(R.string.features_restart_done), back)
+        }
         is WakeStep.Enrolled -> StoryWords(stringResource(R.string.ww_done_title), stringResource(R.string.ww_done_body, step.phrase)) {
             BigPill(stringResource(R.string.features_restart_done), back)
         }
@@ -388,12 +430,14 @@ fun WakeWordRow(onClick: () -> Unit, model: WakeWordModel = hiltViewModel()) {
     val enrolled by model.enrolled.collectAsStateWithLifecycle()
     val state by model.settings.state.collectAsStateWithLifecycle()
     val on = (state.stored[CWW_KEY] ?: model.settings.value(CWW_KEY))?.let { asBool(it) }
+    val phrase = state.stored[PHRASE_KEY]?.takeIf { it.isNotBlank() } ?: enrolled
     val value = when (on) {
-        true -> enrolled ?: stringResource(R.string.ww_on)
+        true -> phrase ?: stringResource(R.string.ww_on)
         false -> stringResource(R.string.settings_not_set)
-        null -> enrolled ?: stringResource(R.string.settings_not_set)
+        null -> phrase ?: stringResource(R.string.settings_not_set)
     }
     ValueRow(stringResource(R.string.ww_title), value, onClick = onClick)
 }
 
 private const val CWW_KEY = "custom_wake_word_enabled"
+private const val PHRASE_KEY = "assistant_wakeword"

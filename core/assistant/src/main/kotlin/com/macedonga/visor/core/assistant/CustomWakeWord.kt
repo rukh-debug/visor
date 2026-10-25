@@ -23,6 +23,9 @@ data class WakeWordResult(val success: Boolean, val error: String, val wakeword:
  * session (390) that keeps the glasses from waking on the phrase, asks for each recording (394), sends the phrase and
  * the recordings in one batch (386), and closes the session (391). The glasses build the model themselves and answer
  * with a result (368); there is no server in it. Thrift fields from the Meta app's schema, 1-based.
+ *
+ * The glasses hold one custom wake word beside "Hey Meta": no message names a slot or an id to keep, a new enrolment
+ * takes the place of the old, and the Meta app's delete clears "the" one ([clear]).
  */
 class CustomWakeWord internal constructor(
     private val send: suspend (Int, ByteArray) -> Boolean,
@@ -173,6 +176,28 @@ class CustomWakeWord internal constructor(
         return withTimeoutOrNull(ENROLL_MS) { waiting.await() }
     }
 
+    // Set while a clear waits, so its answer is not taken for an enrolment.
+    @Volatile
+    private var clearing = false
+
+    /**
+     * Remove the custom wake word from the glasses, as the Meta app's delete does: an utterance (365) with no phrase and
+     * no audio, which the glasses answer with a result. True when they say it went.
+     */
+    suspend fun clear(): Boolean {
+        val id = UUID.randomUUID().toString()
+        val waiting = CompletableDeferred<WakeWordResult>()
+        answer = waiting
+        clearing = true
+        try {
+            val body = ThriftWriter().i32(1, 0).i32(2, 1).str(3, "").str(4, ByteArray(0)).str(5, id).done()
+            if (!send(EV_UTTERANCE, body)) return false
+            return withTimeoutOrNull(CLEAR_MS) { waiting.await() }?.success == true
+        } finally {
+            clearing = false
+        }
+    }
+
     /** Close the session; false when the close could not go out. */
     suspend fun end(session: String, reason: Int = 0): Boolean =
         send(EV_SESSION_END, ThriftWriter().str(1, session).i32(2, reason).done())
@@ -185,6 +210,11 @@ class CustomWakeWord internal constructor(
             transcript = fields[4].asText(),
             enrollmentId = fields[5].asText(),
         )
+        if (clearing) {
+            note("Custom wake word: ${if (result.success) "cleared" else "clear refused: ${result.error}"}")
+            answer?.complete(result)
+            return
+        }
         note("Custom wake word: ${if (result.success) "enrolled \"${result.wakeword}\"" else "refused: ${result.error}"} (heard \"${result.transcript}\")")
         answer?.complete(result)
         _results.tryEmit(result)
@@ -204,12 +234,15 @@ class CustomWakeWord internal constructor(
         private const val BYTES_PER_MS = 32
         // A voice near the glasses peaks around a third of full scale.
         private const val LOUD = 12_000f
+        private const val EV_UTTERANCE = 365
         private const val EV_BATCH_ENROLLMENT = 386
         private const val EV_SESSION_BEGIN = 390
         private const val EV_SESSION_END = 391
         private const val EV_CAPTURE_CONTROL = 394
         // The Meta app waits 60 s; these glasses answered after 61.
         private const val ENROLL_MS = 180_000L
+        // The Meta app gives a clear ten seconds.
+        private const val CLEAR_MS = 10_000L
     }
 }
 

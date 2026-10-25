@@ -870,6 +870,12 @@
     <string name="ww_failed_title">Очки не приняли фразу</string>
     <string name="ww_failed_body">Попробуйте ещё раз, надев очки, в тихом месте.</string>
     <string name="ww_no_link">Сначала включите ассистента в Visor.</string>
+    <string name="ww_replaces">Очки хранят одну свою фразу активации помимо «Hey Meta». Новая заменит «%1$s».</string>
+    <string name="ww_remove">Удалить «%1$s»</string>
+    <string name="ww_removing">Удаляется ваша фраза активации…</string>
+    <string name="ww_removed_title">Фраза активации удалена</string>
+    <string name="ww_removed_body">Очки активируются только по «Hey Meta».</string>
+    <string name="ww_remove_failed">Очки не удалили фразу. Попробуйте ещё раз, когда они подключены.</string>
     <string name="feature_gc">Групповые разговоры</string>
     <string name="feature_gc_about">Общайтесь с несколькими людьми рядом, которые носят очки Meta, напрямую от очков к очкам. Без ключа Meta группа не шифруется: любой поблизости с нужным оборудованием может слушать.</string>
     <string name="feature_gc_use">Скажите «Hey Meta, начни групповой разговор». Остальные говорят «Hey Meta, присоединись к групповому разговору».</string>

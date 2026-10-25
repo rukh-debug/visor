@@ -891,6 +891,12 @@
     <string name="ww_failed_title">Gli occhiali non l\'hanno accettata</string>
     <string name="ww_failed_body">Riprova con gli occhiali indossati, in un posto silenzioso.</string>
     <string name="ww_no_link">Prima attiva l\'assistente in Visor.</string>
+    <string name="ww_replaces">Gli occhiali tengono una sola parola di attivazione personale oltre a “Hey Meta”. Una nuova sostituisce “%1$s”.</string>
+    <string name="ww_remove">Rimuovi “%1$s”</string>
+    <string name="ww_removing">Rimuovo la tua parola di attivazione…</string>
+    <string name="ww_removed_title">Parola di attivazione rimossa</string>
+    <string name="ww_removed_body">Gli occhiali si attivano solo con “Hey Meta”.</string>
+    <string name="ww_remove_failed">Gli occhiali non l\'hanno rimossa. Riprova con gli occhiali connessi.</string>
     <string name="feature_gc">Conversazioni di gruppo</string>
     <string name="feature_gc_about">Parla con poche persone vicine che indossano occhiali Meta, da occhiali a occhiali. Senza la chiave di Meta il gruppo non è cifrato: chiunque vicino con l\'attrezzatura giusta può ascoltare.</string>
     <string name="feature_gc_use">Di\' “Hey Meta, avvia una conversazione di gruppo”. Gli altri dicono “Hey Meta, unisciti alla conversazione di gruppo”.</string>
