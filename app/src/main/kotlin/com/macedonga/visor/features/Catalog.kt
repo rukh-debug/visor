@@ -115,6 +115,16 @@ enum class Feature(
         ),
         Topic.META_AI,
     ),
+    // Barge-in, as the Meta app's assistant runtime names it: a voice detector listens while an answer plays, and
+    // speech recognition confirms it was speech. Found in the app's runtime; whether this firmware reads them is the test.
+    TALK_OVER(
+        "talk_over", R.string.feature_talk_over, R.string.feature_talk_over_about, R.string.feature_talk_over_use, VisorIcons.Mic,
+        listOf(
+            Gate.Config("assistant_on_sn.vad_based_barge_in", true),
+            Gate.Config("assistant_on_sn.ondevice_asr_barge_in_enabled", true),
+        ),
+        Topic.META_AI,
+    ),
     ;
 
     val needsConfig: Boolean get() = gates.any { it is Gate.Config }

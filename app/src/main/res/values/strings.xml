@@ -830,6 +830,9 @@
     <string name="feature_follow_ups">More follow-ups</string>
     <string name="feature_follow_ups_about">After more kinds of answers the assistant keeps listening, so you can go on without “Hey Meta”. A sound says when it stops.</string>
     <string name="feature_follow_ups_use">Ask something, then keep talking after the answer.</string>
+    <string name="feature_talk_over">Talk over answers</string>
+    <string name="feature_talk_over_about">Start speaking while an answer plays and the glasses stop it to hear you, without “Hey Meta”. Meta’s own app has this; these glasses may not.</string>
+    <string name="feature_talk_over_use">Ask something, then talk while the answer is still playing.</string>
     <string name="cf_lede">The glasses\' microphones pick out the voice of the person in front of you, and the speakers bring it closer.</string>
     <string name="cf_allow_note">Meta offers it only where its app runs the introduction and grants access. Visor marks the introduction done and grants access.</string>
     <string name="cf_start">Start it</string>
