@@ -29,6 +29,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -982,9 +984,25 @@ class Assistant(
             speakOnGlasses(l, interaction, transcript, text)
             return 0
         }
-        val packets = voice.speak(text, spoken(l))
-        stream(l, interaction, transcript, text, packets)
-        return packets.sumOf { it.durationUs } / 1000
+        // The first sentence plays while the rest is made, so a long answer starts as soon as a short one would.
+        val locale = spoken(l)
+        val parts = sentences(text)
+        val first = voice.speak(parts.first(), locale)
+        val packets = Channel<OpusPacket>(Channel.UNLIMITED)
+        first.forEach { packets.trySend(it) }
+        if (parts.size > 1) say("Speaking in ${parts.size} parts")
+        val making = scope.launch {
+            try {
+                for (part in parts.drop(1)) voice.speak(part, locale).forEach { packets.send(it) }
+            } catch (e: Exception) {
+                say("Assistant: the rest of the answer could not be spoken (${e.message})")
+            } finally {
+                packets.close()
+            }
+        }
+        val sentUs = stream(l, interaction, transcript, text, packets)
+        making.cancel()
+        return sentUs / 1000
     }
 
     /** ev71, ev52 and ev342, which open every answer. ev52 and ev342 go at a tagged type 0, as the app sends them. */
@@ -1030,7 +1048,7 @@ class Assistant(
      * The answer, in the app's order: ev71, ev52, ev342, ev388; the stream header and the first
      * audio message; the VARM; the rest of the audio as bare frames in real time; 6000; ev389, ev392.
      */
-    private suspend fun stream(l: Link, interaction: String, transcript: String, text: String, packets: List<OpusPacket>) {
+    private suspend fun stream(l: Link, interaction: String, transcript: String, text: String, packets: ReceiveChannel<OpusPacket>): Long {
         val mux = l.mux
         val m0 = checkNotNull(l.m0)
         val s0 = checkNotNull(l.s0)
@@ -1049,13 +1067,14 @@ class Assistant(
 
         _phase.value = AssistantPhase.SPEAKING
         val answer = netEvent(EV_VOICE_ACTION_RESPONSE, varm(interaction, transcript, text))
-        val start = System.nanoTime()
+        var start = System.nanoTime()
         var dueUs = 0L
-        for ((i, chunk) in packets.chunked(2).withIndex()) {
+        var i = 0
+        suspend fun send(chunk: List<OpusPacket>) {
             val frame = chunk.fold(ByteArray(0)) { acc, p ->
                 acc + ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(p.data.size).array() + p.data
             }
-            if (i == 0) {
+            if (i++ == 0) {
                 mux.send(s0, frame, messageType = MT_STREAM_AUDIO)
                 // The VARM goes after the first audio message, never before; without simplified forwarding it would
                 // end the turn on arrival, so it waits for the end of the audio.
@@ -1066,9 +1085,24 @@ class Assistant(
             }
             dueUs += chunk.sumOf { it.durationUs }
             val wait = dueUs / 1000 - (System.nanoTime() - start) / 1_000_000
-            if (wait > 0) delay(wait)
+            // Behind, as after waiting for the next sentence: the clock starts again from now, never a burst.
+            if (wait > 0) delay(wait) else start -= wait * 1_000_000
         }
+        val pair = ArrayList<OpusPacket>(2)
+        var cut = false
+        for (p in packets) {
+            // The glasses ended this answer, as when talked over: the rest would play over the next one.
+            if (interaction in l.closed) { cut = true; break }
+            pair.add(p)
+            if (pair.size == 2) { send(pair.toList()); pair.clear() }
+        }
+        if (interaction in l.closed) cut = true
+        if (pair.isNotEmpty() && !cut) send(pair.toList())
         mux.send(s0, ByteArray(0), messageType = MT_STREAM_END)
+        if (cut) {
+            say("Stopped the answer to $interaction: the glasses ended it after ${dueUs / 1000} ms")
+            return dueUs
+        }
         if (!l.simplified) sendNetEvent(l, m0, answer)
 
         val e389 = ThriftWriter().i64(1, System.currentTimeMillis()).i64(2, mono).i64(3, 7000).str(4, interaction).done()
@@ -1078,6 +1112,7 @@ class Assistant(
             delay(20)
         }
         say("Answered: \"$text\"")
+        return dueUs
     }
 
     /** 5005: `<streamId>_<interactionId>_<pcmBytes>_<ms>`, 96 bytes of PCM per millisecond played. */
@@ -1089,6 +1124,18 @@ class Assistant(
         val interaction = parts.subList(1, parts.size - 2).joinToString("_")
         update(interaction) { it.copy(playedMs = pcm / 96) }
         if (pcm < ms * 96 - 960) say("The glasses played only ${pcm / 96} ms of $ms ms")
+    }
+
+    /** [text] in sentences for the voice, short pieces kept with the next so none is a lone word. */
+    private fun sentences(text: String): List<String> {
+        val out = ArrayList<String>()
+        var piece = ""
+        for (s in text.trim().split(SENTENCE_END)) {
+            piece = if (piece.isEmpty()) s else "$piece $s"
+            if (piece.length >= MIN_PART) { out.add(piece); piece = "" }
+        }
+        if (piece.isNotBlank()) if (out.isEmpty()) out.add(piece) else out[out.size - 1] = "${out.last()} $piece"
+        return out.ifEmpty { listOf(text) }
     }
 
     private fun fallback(locale: Locale, noKey: Boolean): String {
@@ -1244,6 +1291,9 @@ class Assistant(
         const val PHONE_BUDGET_MS = 60_000L
         // After a conversation closes, a moment before its day's lines are written.
         const val LINES_GRACE_MS = 2_000L
+        // Where a sentence ends, and the least a spoken part holds.
+        val SENTENCE_END = Regex("(?<=[.!?…])\\s+")
+        const val MIN_PART = 24
     }
 }
 
