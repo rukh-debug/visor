@@ -175,6 +175,10 @@ class Assistant(
             link?.let { liveAnswer(it, subInteraction, question) }
         }
 
+        override fun cut(subInteraction: String) {
+            link?.closed?.add(subInteraction)
+        }
+
         override fun cameraOn() {
             camera?.on()
         }
@@ -224,7 +228,8 @@ class Assistant(
                         interaction in l.answered -> {
                             val sub = java.util.UUID.randomUUID().toString()
                             say("Heard \"$text\" myself: a follow-up, answered as $sub")
-                            l.mux.send(checkNotNull(l.m0), netEvent(EV_START_OF_USER_SPEECH, ThriftWriter().str(1, sub).i64(2, startMs).done()), messageType = MT_NET_EVENT)
+                            // startOfSpeechClientTimestampMs is an i32 in the Meta app's schema.
+                            l.mux.send(checkNotNull(l.m0), netEvent(EV_START_OF_USER_SPEECH, ThriftWriter().str(1, sub).i32(2, startMs.toInt()).done()), messageType = MT_NET_EVENT)
                             l.taken.add(sub)
                             answer(l, sub, text, Visual(null, "", "", false, ""))
                         }

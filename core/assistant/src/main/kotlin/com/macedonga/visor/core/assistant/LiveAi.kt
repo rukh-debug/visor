@@ -25,6 +25,9 @@ internal interface LiveAiHost {
     /** One turn: the model sees the camera and hears [question]; the answer is spoken as [subInteraction]. */
     suspend fun answer(subInteraction: String, question: String)
 
+    /** Stop [subInteraction]'s answer where it is, as the glasses do with one they end. */
+    fun cut(subInteraction: String)
+
     /** The camera stream the session sees through, on 51350 as the glasses' MMAI_LIVE app. */
     fun cameraOn()
     fun cameraOff()
@@ -55,6 +58,11 @@ internal class LiveAi(private val context: Context, private val scope: Coroutine
     private var heardAudio = false
     private val nonce = AtomicInteger(1)
     private var micChunks = 0
+
+    /** The answer last asked for, and the question it answers with where its speech ended, in stream ms. */
+    @Volatile private var speaking = ""
+    @Volatile private var lastQuestion = ""
+    @Volatile private var lastEndMs = 0L
 
     val active: Boolean get() = _phase.value != LiveAiPhase.OFF
 
@@ -132,6 +140,9 @@ internal class LiveAi(private val context: Context, private val scope: Coroutine
         if (!active) return
         val sub = UUID.randomUUID().toString()
         host.note("Live AI: heard \"$text\" ($startMs to $endMs ms)")
+        // Whatever is said next, the answer still playing stops: it would play under the next one.
+        speaking.takeIf { it.isNotEmpty() }?.let { host.cut(it) }
+        speaking = ""
         // The glasses hear nothing themselves in Live AI, "Hey Meta, stop" included: the phone ends it.
         if (STOP.containsMatchIn(text)) {
             val id = interaction
@@ -141,12 +152,19 @@ internal class LiveAi(private val context: Context, private val scope: Coroutine
             }
             return
         }
+        // A pause split one question: the halves go to the model as one, in place of the first.
+        val joined = lastQuestion.isNotEmpty() && startMs - lastEndMs in 0..JOIN_MS
+        if (joined) host.note("Live AI: joined with the question before: \"$lastQuestion\"")
+        val question = if (joined) "$lastQuestion $text" else text
+        lastQuestion = question
+        lastEndMs = endMs
+        speaking = sub
         scope.launch {
-            host.event(EV_START_OF_USER_SPEECH, ThriftWriter().str(1, sub).i64(2, startMs).done())
-            host.event(EV_FINAL_TRANSCRIPTION, ThriftWriter().str(1, text).i32(2, 0).str(4, "").bool(7, false).str(8, sub).i64(13, endMs).done())
+            host.event(EV_START_OF_USER_SPEECH, ThriftWriter().str(1, sub).i32(2, startMs.toInt()).done())
+            host.event(EV_FINAL_TRANSCRIPTION, ThriftWriter().str(1, question).i32(2, 0).str(4, "").bool(7, false).str(8, sub).i64(13, endMs).done())
             _phase.value = LiveAiPhase.THINKING
             try {
-                host.answer(sub, text)
+                host.answer(sub, question)
             } finally {
                 if (active) _phase.value = LiveAiPhase.LISTENING
             }
@@ -166,6 +184,10 @@ internal class LiveAi(private val context: Context, private val scope: Coroutine
     fun end(why: String) {
         if (!active) return
         host.note("Live AI: ended ($why)")
+        speaking.takeIf { it.isNotEmpty() }?.let { host.cut(it) }
+        speaking = ""
+        lastQuestion = ""
+        lastEndMs = 0L
         _phase.value = LiveAiPhase.OFF
         keepalive?.cancel()
         keepalive = null
@@ -181,6 +203,8 @@ internal class LiveAi(private val context: Context, private val scope: Coroutine
         const val PAYLOAD_AUDIO = 1
         const val PAYLOAD_VIDEO = 2
         const val KEEPALIVE_MS = 5_000L
+        // An utterance that starts this soon after the last one ends continues the same question.
+        const val JOIN_MS = 1_500L
 
         // "Stop Live AI" anywhere in what was said, or a bare "stop", "exit", "that's all".
         val STOP = Regex("\\b(stop|end|exit|quit|close|turn off)( the)? live ?ai\\b|^\\W*(hey meta\\W+)?(stop|exit|quit|end|that'?s all|goodbye|bye)(\\W+(stop|now|please))*\\W*$", RegexOption.IGNORE_CASE)
