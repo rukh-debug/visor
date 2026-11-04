@@ -289,7 +289,28 @@ fun AssistantSettingsScreen(open: (NavKey) -> Unit, model: AssistantViewModel = 
         }
         item(key = "wake-word") {
             Column(Modifier.padding(top = 28.dp)) {
-                Rows(row { WakeWordRow(onClick = { open(com.macedonga.visor.WakeWordKey) }) })
+                Rows(
+                    row { WakeWordRow(onClick = { open(com.macedonga.visor.WakeWordKey) }) },
+                    row {
+                        ValueRow(
+                            stringResource(R.string.ai_phone_assistant),
+                            config.assistantPhrase.ifBlank { stringResource(R.string.ai_phone_assistant_off) },
+                            onClick = { sheet = "phone-assistant" },
+                            sub = stringResource(R.string.ai_phone_assistant_row_sub),
+                        )
+                    },
+                    if (config.assistantPhrase.isNotBlank()) row {
+                        ToggleRow(
+                            stringResource(R.string.ai_phone_assistant_anywhere),
+                            config.assistantAnywhere,
+                            onChange = { on -> model.store.update { it.copy(assistantAnywhere = on) } },
+                            sub = stringResource(
+                                if (config.assistantAnywhere) R.string.ai_phone_assistant_anywhere_on else R.string.ai_phone_assistant_anywhere_off,
+                                config.assistantPhrase,
+                            ),
+                        )
+                    } else null,
+                )
             }
         }
         item(key = "glasses") {
@@ -324,6 +345,14 @@ fun AssistantSettingsScreen(open: (NavKey) -> Unit, model: AssistantViewModel = 
                 com.macedonga.visor.core.assistant.ANSWER_WAIT_RANGE.first, com.macedonga.visor.core.assistant.ANSWER_WAIT_RANGE.last,
             ),
             onSave = { s -> model.store.update { it.copy(answerWaitSeconds = s) } }, onDismiss = { sheet = null },
+        )
+        "phone-assistant" -> TextSheet(
+            stringResource(R.string.ai_phone_assistant),
+            // Off, it suggests the custom wake word, which can be saved as it is.
+            config.assistantPhrase.ifBlank { context.getSharedPreferences("wake_word", Context.MODE_PRIVATE).getString("enrolled", null).orEmpty() },
+            saved = config.assistantPhrase,
+            onSave = { text -> model.store.update { it.copy(assistantPhrase = text.trim()) } },
+            onDismiss = { sheet = null }, sub = stringResource(R.string.ai_phone_assistant_sub), hint = "Hey Astra",
         )
         "instructions" -> TextSheet(
             stringResource(R.string.ai_instructions), config.instructions, onSave = { text -> model.store.update { it.copy(instructions = text) } },

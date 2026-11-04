@@ -860,11 +860,12 @@ fun SheetField(
     }
 }
 
-/** Text to write: one field, and Save. [extra] sits beside Save (Paste, New). */
+/** Text to write: one field, and Save. [extra] sits beside Save (Paste, New). [saved]: what is kept now, when [initial] only suggests. */
 @Composable
 fun TextSheet(
     title: String,
     initial: String,
+    saved: String = initial,
     onSave: (String) -> Unit,
     onDismiss: () -> Unit,
     sub: String? = null,
@@ -890,7 +891,7 @@ fun TextSheet(
             ActionPill(stringResource(R.string.settings_save), {
                 onSave(draft)
                 onDismiss()
-            }, enabled = valid(draft) && draft != initial)
+            }, enabled = valid(draft) && draft != saved)
         }
     }
 }

@@ -257,6 +257,7 @@ class Assistant(
                             val question = asked().ifEmpty { text }
                             l.words.remove(interaction)
                             say("Heard \"$question\" myself: the glasses left this question to the server")
+                            if (toPhoneAssistant(l, interaction, question, answerTurn = true)) return@launch
                             answer(l, interaction, question, Visual(null, "", "", false, ""))
                         }
                     }
@@ -696,6 +697,8 @@ class Assistant(
         l.closed.add(interaction)
         val words = f[2].asStruct()[3].asText().trim()
         if (interaction in l.taken || words.isEmpty() || WAKE_WORD_ONLY.matches(words)) return
+        // The glasses answered it already; the phone still opens what was asked for, or the assistant for the phrase alone.
+        if (toPhoneAssistant(l, interaction, words, answerTurn = false)) return
         say("The glasses did \"$words\" themselves")
         val turn = typedTurn(l, interaction, words)
         if (turn != null) return update(turn) { it.copy(problem = ON_GLASSES) }
@@ -810,6 +813,7 @@ class Assistant(
             scope.launch { answer(l, interaction, question, visual, toolbox(l, m), turn) }
             return
         }
+        if (toPhoneAssistant(l, interaction, transcript, answerTurn = true)) return
         // The wearer speaks a language the glasses have no pack for: their words and their understanding of them are
         // not the wearer's. The phone's, in that language, answer instead; the glasses' only if the phone heard nothing.
         if (store.config.value.speechLanguage.isNotEmpty()) {
@@ -883,6 +887,71 @@ class Assistant(
         if (!display()) return null
         val advertised = (m[54] as? List<*>).orEmpty().flatMap { server -> (server.asStruct()[2] as? List<*>).orEmpty().map { it.asText() } }
         return glassesToolbox(advertised) { full, input -> glassesCall(l, full, input) }
+    }
+
+    // --- the phone's assistant -----------------------------------------------
+
+    /**
+     * A request that starts with the assistant phrase goes to the phone, not the model: "open <app>" and YouTube searches
+     * Visor does itself, anything else opens the phone's assistant, which cannot be handed the words, so the wearer says
+     * them again. [answerTurn]: the glasses wait for an answer to this turn. False when it is not such a request.
+     */
+    private fun toPhoneAssistant(l: Link, interaction: String, transcript: String, answerTurn: Boolean): Boolean {
+        val phone = phone ?: return false
+        val config = store.config.value
+        // What follows the phrase says what to do: nothing opens the assistant.
+        val rest = PhoneAssistant.after(config.assistantPhrase, transcript, config.assistantAnywhere) ?: return false
+        l.taken.add(interaction)
+        val command = if (rest.isEmpty()) PhoneAssistant.Command.Assistant else PhoneAssistant.command(rest)
+        // The glasses answered something themselves: only an app to open is still worth doing.
+        if (!answerTurn && rest.isNotEmpty() && command == PhoneAssistant.Command.Assistant) return false
+        say("Phone assistant: \"$rest\" -> $command")
+        record(TurnRecord(interaction, System.currentTimeMillis(), transcript))
+        scope.launch {
+            val done = when (command) {
+                is PhoneAssistant.Command.Open -> phone.openApp(command.app)
+                is PhoneAssistant.Command.YouTube -> phone.youtube(command.query)
+                PhoneAssistant.Command.Assistant -> {
+                    // An answer ends the glasses' turn, which otherwise waits for one until their timeout. Said first,
+                    // so the assistant does not hear it.
+                    if (answerTurn) {
+                        speakFixed(l, interaction, transcript, if (rest.isEmpty()) "Opening assistant." else "Opening assistant, say it again.")
+                        delay(if (rest.isEmpty()) ASSISTANT_AFTER_SPEECH_MS else ASSISTANT_AFTER_SPEECH_MS + 800)
+                    }
+                    phone.openAssistant()
+                }
+            }
+            val what = when (command) {
+                is PhoneAssistant.Command.Open -> "Open"
+                is PhoneAssistant.Command.YouTube -> "Search \"${command.query}\""
+                PhoneAssistant.Command.Assistant -> "Assistant"
+            }
+            update(interaction) { it.copy(actions = listOf(ToolAction(done.app.ifEmpty { "Phone" }, what, done.failure == null))) }
+            say(
+                when {
+                    done.failure != null -> "Phone assistant: $what did not work: ${done.failure}"
+                    done.tapToOpen -> "Phone assistant: ${done.app} waits in a notification (the phone is locked or Visor may not open apps)"
+                    else -> "Phone assistant: opened ${done.app}"
+                },
+            )
+            if (answerTurn && command != PhoneAssistant.Command.Assistant) {
+                speakFixed(
+                    l, interaction, transcript,
+                    when {
+                        done.failure != null -> "Couldn't do that."
+                        done.tapToOpen -> "Unlock your phone for ${done.app}."
+                        else -> "Opening ${done.app}."
+                    },
+                )
+            }
+        }
+        return true
+    }
+
+    /** Speak [text] as [interaction]'s answer, as it is, without the model. */
+    private suspend fun speakFixed(l: Link, interaction: String, transcript: String, text: String) {
+        runCatching { deliver(l, interaction, transcript, text) }.onFailure { say("Phone assistant: the answer did not reach the glasses: ${it.message}") }
+        update(interaction) { it.copy(answer = text) }
     }
 
     // --- replying ------------------------------------------------------------
@@ -1518,6 +1587,7 @@ class Assistant(
         // ev57 field 11, invocationMethod: 1 for the wake word, 3 for the reply to an answer that asked something, 5 for
         // a question after any other answer.
         val FOLLOW_UP_INVOCATIONS = setOf(3L, 5L)
+        const val ASSISTANT_AFTER_SPEECH_MS = 1_400L
         const val FRESH_WINDOW_MS = 2 * 60_000L
         val WAKE_WORD_ONLY = Regex("^(hey|hi|ehi|ei|ok|okay)?[ ,]*(meta|mata|metta|matta|meda)[.!?]*$", RegexOption.IGNORE_CASE)
         const val MIN_MODEL_MS = 6_000L

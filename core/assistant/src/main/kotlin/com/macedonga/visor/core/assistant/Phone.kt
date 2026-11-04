@@ -19,6 +19,15 @@ interface Phone {
     suspend fun control(control: MediaControl): PhoneDone
 
     fun nowPlaying(): NowPlaying
+
+    /** The installed app called [name], opened. */
+    suspend fun openApp(name: String): PhoneDone
+
+    /** [query] searched in YouTube. */
+    suspend fun youtube(query: String): PhoneDone
+
+    /** The phone's default assistant, opened and listening. */
+    suspend fun openAssistant(): PhoneDone
 }
 
 /**

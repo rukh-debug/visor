@@ -289,6 +289,37 @@ class PhoneActions @Inject constructor(@ApplicationContext private val context: 
             sessions.orEmpty().map { it.packageName })
             .filter { it != context.packageName && pm.getLaunchIntentForPackage(it) != null }.toSet()
 
+    override suspend fun openApp(name: String): PhoneDone {
+        val want = simple(name)
+        if (want.isEmpty()) return PhoneDone("", "no app was named")
+        val apps = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+            .map { it.activityInfo.packageName }.filter { it != context.packageName }.distinct().associateWith { simple(label(it)) }
+        val pkg = apps.entries.firstOrNull { it.value == want }?.key
+            ?: apps.entries.filter { it.value.isNotEmpty() && (it.value.startsWith(want) || want.startsWith(it.value)) }.minByOrNull { it.value.length }?.key
+            ?: apps.entries.filter { it.value.isNotEmpty() && (it.value.contains(want) || want.contains(it.value)) }.minByOrNull { it.value.length }?.key
+            ?: return PhoneDone("", "there is no app called $name on the phone")
+        val launch = pm.getLaunchIntentForPackage(pkg) ?: return PhoneDone(label(pkg), "${label(pkg)} cannot be opened")
+        note("Opening ${label(pkg)} for \"$name\"")
+        return open(launch, OPEN_ID, label(pkg), label(pkg))
+    }
+
+    override suspend fun youtube(query: String): PhoneDone {
+        val search = Intent(Intent.ACTION_SEARCH).setPackage(YOUTUBE).putExtra(SearchManager.QUERY, query)
+        val intent = if (pm.resolveActivity(search, 0) != null) search
+        else Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(query)))
+        note("YouTube search \"$query\": $intent")
+        return open(intent, OPEN_ID, context.getString(R.string.phone_youtube, query), "YouTube")
+    }
+
+    override suspend fun openAssistant(): PhoneDone {
+        // The voice command opens the assistant listening; the assist action is the digital assistant the phone is set to.
+        val intent = listOf(Intent(Intent.ACTION_VOICE_COMMAND), Intent(Intent.ACTION_ASSIST))
+            .firstOrNull { pm.resolveActivity(it, PackageManager.MATCH_DEFAULT_ONLY) != null }
+            ?: return PhoneDone("", "the phone has no assistant app")
+        note("Opening the assistant: $intent -> ${handler(intent)}")
+        return open(intent, ASSISTANT_ID, context.getString(R.string.phone_assistant), "")
+    }
+
     /** Starts [implicit] when Visor may, and puts it in a notification when it may not or the phone is locked. */
     private fun open(implicit: Intent, id: Int, title: String, named: String): PhoneDone {
         // Explicit, so it opens the app it names and nothing else; with no default, the first that takes it.
@@ -352,6 +383,9 @@ class PhoneActions @Inject constructor(@ApplicationContext private val context: 
         const val CHANNEL = "assistant_actions"
         const val DIRECTIONS_ID = 11
         const val PLAY_ID = 12
+        const val OPEN_ID = 13
+        const val ASSISTANT_ID = 14
+        const val YOUTUBE = "com.google.android.youtube"
         const val LAST = "last_player"
         const val PLAY_WAIT_MS = 6_000L
         const val POLL_MS = 250L

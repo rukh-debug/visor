@@ -1029,6 +1029,15 @@
     <string name="band_fit_loose">Loose</string>
     <string name="band_fit_tight">Snug</string>
     <string name="band_wrong_way">Worn the wrong way round</string>
+    <string name="phone_youtube">Search YouTube for %1$s</string>
+    <string name="phone_assistant">Open the assistant</string>
+    <string name="ai_phone_assistant">Phone assistant phrase</string>
+    <string name="ai_phone_assistant_off">Off</string>
+    <string name="ai_phone_assistant_sub">Say this phrase and the request goes to your phone instead of Visor\'s AI. Your custom wake word is filled in: \"Hey Astra\" alone opens the phone\'s assistant, \"Hey Astra open Spotify\" opens the app, \"Hey Astra play lofi on YouTube\" searches YouTube, and anything else opens the assistant so you can say it again. Any words work, e.g. \"Open Google Assistant\" with Hey Meta. Clear it to turn this off.</string>
+    <string name="ai_phone_assistant_row_sub">Sends requests to the phone\'s own assistant</string>
+    <string name="ai_phone_assistant_anywhere">Match anywhere in the request</string>
+    <string name="ai_phone_assistant_anywhere_off">Only when the request starts with \"%1$s\" (a \"Hey Meta\" before it is fine). Turn on to catch it mid-sentence.</string>
+    <string name="ai_phone_assistant_anywhere_on">\"%1$s\" counts wherever it is said, e.g. \"Hey Meta, can you %1$s\". What comes after it still works, like \"%1$s open Spotify\".</string>
     <string name="live_settings_glasses_host">Glasses host the Wi-Fi</string>
     <string name="live_problem_vpn">A VPN keeps Visor off the glasses\' network. Exclude Visor from it.</string>
     <string name="live_drops">The stream keeps dropping</string>

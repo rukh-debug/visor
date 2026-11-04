@@ -40,9 +40,13 @@ data class AssistantConfig(
     // The assistant's own tools for the saved sets: telling what they are, and switching to one when asked.
     val listSetsTool: Boolean = false,
     val useSetTool: Boolean = false,
+    // A wake phrase (the glasses' custom one) whose requests go to the phone's own assistant; empty, off. Not kept in a set.
+    val assistantPhrase: String = "",
+    // The phrase counts anywhere in the request, not only at its start.
+    val assistantAnywhere: Boolean = false,
 ) {
     /** What a set keeps: everything on the Meta AI page but whether it answers at all and the set tools themselves. */
-    fun kept() = copy(enabled = AssistantConfig().enabled, modelSet = "", listSetsTool = false, useSetTool = false)
+    fun kept() = copy(enabled = AssistantConfig().enabled, modelSet = "", listSetsTool = false, useSetTool = false, assistantPhrase = "", assistantAnywhere = false)
 }
 
 /** One integration as a profile keeps it: on or off, and the tools turned off. */
@@ -54,7 +58,7 @@ data class McpChoice(val on: Boolean, val off: Set<String> = emptySet())
  * profile from before profiles kept them.
  */
 data class ModelSet(val name: String, val about: String, val settings: AssistantConfig, val mcp: Map<String, McpChoice>? = null) {
-    fun into(c: AssistantConfig) = settings.copy(enabled = c.enabled, modelSet = name, listSetsTool = c.listSetsTool, useSetTool = c.useSetTool)
+    fun into(c: AssistantConfig) = settings.copy(enabled = c.enabled, modelSet = name, listSetsTool = c.listSetsTool, useSetTool = c.useSetTool, assistantPhrase = c.assistantPhrase, assistantAnywhere = c.assistantAnywhere)
 
     /** As kept on the phone, or in a backup without the key. */
     fun json(key: Boolean = true): JSONObject = settings.let { s ->
@@ -265,6 +269,8 @@ class AssistantConfigStore(context: Context, private val mcp: McpStore) : FieldB
             .putString("model_set", next.modelSet)
             .putBoolean("tool_list_sets", next.listSetsTool)
             .putBoolean("tool_use_set", next.useSetTool)
+            .putString("assistant_phrase", next.assistantPhrase)
+            .putBoolean("assistant_anywhere", next.assistantAnywhere)
             .apply()
         _config.value = next
         // Edits on the page go back into the set they came from.
@@ -295,6 +301,8 @@ class AssistantConfigStore(context: Context, private val mcp: McpStore) : FieldB
             modelSet = prefs.getString("model_set", d.modelSet).orEmpty(),
             listSetsTool = prefs.getBoolean("tool_list_sets", d.listSetsTool),
             useSetTool = prefs.getBoolean("tool_use_set", d.useSetTool),
+            assistantPhrase = prefs.getString("assistant_phrase", d.assistantPhrase).orEmpty(),
+            assistantAnywhere = prefs.getBoolean("assistant_anywhere", d.assistantAnywhere),
         )
     }
 
