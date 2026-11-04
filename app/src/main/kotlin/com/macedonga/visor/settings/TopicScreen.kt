@@ -51,7 +51,7 @@ private fun sectionsOf(topic: Topic): List<Pair<Int?, List<String>>> = when (top
     )
     Topic.CONTROLS -> listOf(
         R.string.section_capture_button to listOf(
-            "capture_mode", "assignable_action_button_short_press_mapping", "assignable_action_button_long_press_mapping",
+            "capture_button_short_long_press", "capture_mode", "assignable_action_button_short_press_mapping", "assignable_action_button_long_press_mapping",
             "action_button_assistant_custom_prompt",
         ),
         R.string.section_touchpad to listOf(
@@ -101,8 +101,11 @@ fun TopicScreen(name: String, open: (NavKey) -> Unit, model: SettingsViewModel =
             Topic.NOTIFICATIONS -> item(key = "visor") {
                 val on by model.notifyChoice.enabled.collectAsStateWithLifecycle()
                 val muted by model.apps.muted.collectAsStateWithLifecycle()
+                val glasses by model.connection.state.collectAsStateWithLifecycle()
+                // Glasses without a display read out chat messages only.
+                val sub = if (hasDisplay(glasses.info?.build)) R.string.settings_notifications_sub else R.string.settings_notifications_sub_chat
                 Rows(
-                    { VisorToggleRow(model.toggles.byId("notifications")!!, sub = stringResource(R.string.settings_notifications_sub)) },
+                    { VisorToggleRow(model.toggles.byId("notifications")!!, sub = stringResource(sub)) },
                     if (on) row {
                         ValueRow(
                             stringResource(R.string.notify_apps_title),
@@ -113,6 +116,7 @@ fun TopicScreen(name: String, open: (NavKey) -> Unit, model: SettingsViewModel =
                 )
             }
             Topic.PHOTOS -> item(key = "visor") { PhotosPart(model) }
+            Topic.BAND -> item(key = "visor") { BandPart(model) }
             else -> Unit
         }
         // Hearing is nothing but features, so they need no heading of their own there.
