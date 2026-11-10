@@ -80,18 +80,24 @@ internal class SetTools(private val book: SetBook, private val config: () -> Ass
         if (about.isNotBlank()) append(about.replace('\n', ' ')).append(". ")
         append("Model ").append(model())
         if (s.linesModel.isNotBlank()) append(", diary lines by ").append(s.linesModel)
-        append(". ").append(if (s.glassesVoice) "Glasses' voice" else "Phone's voice")
+        append(". ").append(
+            when (s.tts) {
+                TtsPath.GLASSES -> "Glasses' voice"
+                TtsPath.PHONE -> "Phone's voice"
+                TtsPath.CLOUD -> "Cloud voice"
+            },
+        )
         append(", camera ").append(if (s.vision) "on" else "off")
-        if (s.provider == Provider.CLAUDE) append(", web search ").append(if (s.webSearch) "on" else "off")
+        if (s.provider.search != null) append(", web search ").append(if (s.webSearch) "on" else "off")
         append(", remembers a conversation ${s.memoryMinutes} min, glasses wait ${s.answerWaitSeconds} s for an answer")
         if (s.instructions.isNotBlank()) append(", own instructions: \"").append(s.instructions.replace('\n', ' ').take(120)).append('"')
         append('.')
     }
 
     private fun ModelSet.model(): String = when (settings.provider) {
-        Provider.CLAUDE -> "Claude " + settings.model.ifBlank { "(default model)" }
         Provider.OPENAI_COMPATIBLE -> settings.model.ifBlank { "(server's default model)" } + " on " +
             settings.baseUrl.substringAfter("://").substringBefore('/')
+        else -> settings.provider.title + " " + settings.answerModel.ifBlank { "(default model)" }
     }
 
     private companion object {

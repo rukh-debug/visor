@@ -9,14 +9,15 @@ import android.bluetooth.BluetoothProfile
 import android.content.Context
 import com.macedonga.visor.core.connection.GlassesConnection
 import com.macedonga.visor.core.identity.IdentityStore
-import com.macedonga.visor.core.identity.provision.WrongOwnerError
 import com.macedonga.visor.core.identity.devicePublicKey
 import com.macedonga.visor.core.identity.provision.ProvisionStep
+import com.macedonga.visor.core.identity.provision.WrongOwnerError
 import com.macedonga.visor.core.identity.provision.provision
 import com.macedonga.visor.core.protocol.Band
 import com.macedonga.visor.core.transport.BluetoothLeTransport
 import com.macedonga.visor.log.EventLog
 import com.macedonga.visor.login.MetaLogin
+import com.macedonga.visor.setup.BAND_NAME
 import com.macedonga.visor.setup.BondFailed
 import com.macedonga.visor.setup.NearbyGlasses
 import com.macedonga.visor.setup.words
@@ -50,10 +51,10 @@ class BandSetup @Inject constructor(
         data object Idle : Status
         data class Running(val step: ProvisionStep?) : Status
         data class Done(val serial: String) : Status
-        data class Failed(val reason: Reason, val detail: String = "") : Status
+        data class Failed(val reason: Reason) : Status
     }
 
-    enum class Reason { NO_GLASSES, NOT_PAIRED, NO_ANSWER, REFUSED, WRONG_OWNER, FAILED }
+    enum class Reason { NO_GLASSES, NOT_PAIRED, NO_ANSWER, REFUSED, WRONG_OWNER, BLUETOOTH_OFF, FAILED }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val _status = MutableStateFlow<Status>(Status.Idle)
@@ -68,15 +69,16 @@ class BandSetup @Inject constructor(
             if (glasses == null || !owned) return@launch fail(Reason.NO_GLASSES)
             link.release()
             try {
-                // Not bonded yet: the band heard nearby is bonded here, as the glasses are.
-                val candidates = bondedBands().ifEmpty { listOfNotNull(nearby.bandNearby()?.let { nearby.bond(it) }) }
-                if (candidates.isEmpty()) return@launch fail(Reason.NOT_PAIRED)
-                // A band paired more than once leaves a bond per pairing; the one that answers is the band.
-                val address = candidates.firstOrNull { reachable(it) } ?: return@launch fail(Reason.NO_ANSWER)
+                // A band paired more than once leaves a bond per pairing; the one that answers is the band. A band that
+                // forgot this phone answers none of them, so then the band heard nearby is bonded here, as the glasses are.
+                val bonded = bondedBands()
+                val address = bonded.firstOrNull { reachable(it) }
+                    ?: nearby.bandNearby()?.let { nearby.bond(it) }?.takeIf { reachable(it) }
+                    ?: return@launch fail(if (bonded.isEmpty()) Reason.NOT_PAIRED else Reason.NO_ANSWER)
                 log.add("Band setup: changing owner on $address")
                 val result = provision(
-                    transport = BluetoothLeTransport(context, address, defaultPsm = Band.PSM),
-                    // No existing key: the band gets one of its own, as the Meta app keeps one per device.
+                    transport = BluetoothLeTransport(context, address, defaultPsm = Band.PSM, randomAddress = true),
+                    // No existing key: the band gets one of its own.
                     source = login.source,
                 ) { step ->
                     _status.value = Status.Running(step)
@@ -94,7 +96,7 @@ class BandSetup @Inject constructor(
                         BondFailed.Why.NO_ANSWER -> Reason.NO_ANSWER
                         // The band takes a new phone only while it is in pairing mode, on its charger.
                         BondFailed.Why.REFUSED -> Reason.REFUSED
-                        else -> Reason.FAILED
+                        BondFailed.Why.BLUETOOTH_OFF -> Reason.BLUETOOTH_OFF
                     },
                     failed.why.name,
                 )
@@ -107,19 +109,15 @@ class BandSetup @Inject constructor(
         }
     }
 
-    fun reset() {
-        if (_status.value !is Status.Running) _status.value = Status.Idle
-    }
-
     private fun fail(reason: Reason, detail: String = "") {
         log.add("Band setup failed: $reason $detail")
-        _status.value = Status.Failed(reason, detail)
+        _status.value = Status.Failed(reason)
     }
 
     @SuppressLint("MissingPermission")
     private fun bondedBands(): List<String> = runCatching {
         context.getSystemService(BluetoothManager::class.java)?.adapter?.bondedDevices.orEmpty()
-            .filter { it.type != BluetoothDevice.DEVICE_TYPE_CLASSIC && it.name?.startsWith(BAND_NAME) == true }
+            .filter { it.type != BluetoothDevice.DEVICE_TYPE_CLASSIC && BAND_NAME.containsMatchIn(it.name.orEmpty()) }
             .map { it.address }
     }.getOrDefault(emptyList())
 
@@ -146,7 +144,6 @@ class BandSetup @Inject constructor(
     }
 
     private companion object {
-        const val BAND_NAME = "Meta Band"
         const val PROBE_MS = 6_000L
     }
 }

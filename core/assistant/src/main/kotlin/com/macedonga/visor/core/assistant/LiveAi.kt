@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,10 +29,19 @@ internal interface LiveAiHost {
     /** Stop [subInteraction]'s answer where it is, as the glasses do with one they end. */
     fun cut(subInteraction: String)
 
-    /** The camera stream the session sees through, on 51350 as the glasses' MMAI_LIVE app. */
+    /** Opens and closes the [LiveAiCamera]. */
     fun cameraOn()
     fun cameraOff()
     fun note(text: String)
+}
+
+/** The camera stream Live AI sees through, on 51350 as the glasses' MMAI_LIVE app. */
+interface LiveAiCamera {
+    fun on()
+    fun off()
+
+    /** True once frames come. */
+    val frames: Flow<Boolean>
 }
 
 /** Where a Live AI session has got to. */
@@ -91,21 +101,13 @@ internal class LiveAi(
         _phase.value = LiveAiPhase.STARTING
         // Some glasses open the interaction without ev289 first; the camera is still the phone's to open.
         host.cameraOn()
-        // As the server answers a new interaction: created, connected (twice), then the stream's first ack.
-        val creation = ThriftWriter().str(1, id).bool(2, true).bool(3, false)
-            .str(4, UUID.randomUUID().toString().uppercase()).str(5, SERVER_HOST)
-            .str(6, "ble").str(10, "${System.currentTimeMillis()}-${UUID.randomUUID()}").bool(11, false).bool(13, true).bool(14, false).done()
-        host.event(EV_MWA_INTERACTION_CREATION_SUCCESS, creation)
-        delay(20)
-        host.event(EV_SERVER_CONNECTION_STATUS, ThriftWriter().str(1, id).bool(2, false).bool(3, false).i32(4, 1).bool(7, false).done())
-        delay(20)
-        host.event(EV_SERVER_CONNECTION_STATUS, ThriftWriter().str(1, id).bool(2, true).bool(3, false).i32(4, 2).done())
-        delay(20)
-        val keep = ThriftWriter().str(1, "AsrStartListening").i32(2, 20_000).i32(3, nonce.getAndIncrement())
-        if (display()) keep.str(4, id)
-        host.event(EV_KEEP_AIR_SESSION_ALIVE, keep.done())
+        for ((event, body) in serverHello(id)) {
+            host.event(event, body)
+            delay(20)
+        }
+        keepAirSession("AsrStartListening", id)
         ears?.stop()
-        ears = GlassesEars(context, locale, continuous = true, onUtterance = ::heard, onProblem = { host.note("Live AI: $it") }).also { it.start() }
+        ears = GlassesEars(context, locale, onUtterance = ::heard, onProblem = { host.note("Live AI: $it") }).also { it.start() }
         keepalive?.cancel()
         keepalive = scope.launch { keepAlive() }
     }
@@ -116,7 +118,7 @@ internal class LiveAi(
     /** A chunk of the microphone. The first one is the audio payload the server acknowledges as received. */
     fun onMic(chunk: ByteArray) {
         if (!active) return
-        if (micChunks++ < 3) host.note("Live AI: microphone chunk ${chunk.size} bytes ${chunk.take(24).joinToString("") { "%02x".format(it) }}")
+        if (micChunks++ < 3) host.note("Live AI: microphone chunk ${chunk.size} bytes ${chunk.toHexString(0, minOf(24, chunk.size))}")
         if (!heardAudio && interaction.isNotEmpty()) {
             heardAudio = true
             scope.launch { firstPayload(PAYLOAD_AUDIO) }
@@ -139,7 +141,7 @@ internal class LiveAi(
             ThriftWriter().i32(1, type).i64(2, now).i64(3, now).str(4, id).str(5, "$SERVER_HOST:tsp_lla/assistant/sgserver").done(),
         )
         host.note("Live AI: acknowledged the first ${if (type == PAYLOAD_AUDIO) "audio" else "video"}")
-        if (type == PAYLOAD_AUDIO) _phase.value = LiveAiPhase.LISTENING
+        if (type == PAYLOAD_AUDIO && active && interaction == id) _phase.value = LiveAiPhase.LISTENING
     }
 
     /** An utterance the ears finished: a sub-interaction opens with its speech, then the answer follows. */
@@ -166,14 +168,18 @@ internal class LiveAi(
         lastQuestion = question
         lastEndMs = endMs
         speaking = sub
+        val id = interaction
         scope.launch {
+            // startOfSpeechClientTimestampMs is an i32 in the Meta app's schema.
             host.event(EV_START_OF_USER_SPEECH, ThriftWriter().str(1, sub).i32(2, startMs.toInt()).done())
             host.event(EV_FINAL_TRANSCRIPTION, ThriftWriter().str(1, question).i32(2, 0).str(4, "").bool(7, false).str(8, sub).i64(13, endMs).done())
+            // Ended while those went out: the session stays off.
+            if (!active || interaction != id) return@launch
             _phase.value = LiveAiPhase.THINKING
             try {
                 host.answer(sub, question)
             } finally {
-                if (active) _phase.value = LiveAiPhase.LISTENING
+                if (active && interaction == id) _phase.value = LiveAiPhase.LISTENING
             }
         }
     }
@@ -183,10 +189,15 @@ internal class LiveAi(
         while (scope.isActive && active) {
             delay(KEEPALIVE_MS)
             host.event(EV_FRAME_KEEP_ALIVE, ThriftWriter().i64(1, System.currentTimeMillis()).i32(2, nonce.getAndIncrement()).done())
-            val keep = ThriftWriter().str(1, "LiveAiSession").i32(2, 20_000).i32(3, nonce.getAndIncrement())
-            if (display()) keep.str(4, interaction)
-            host.event(EV_KEEP_AIR_SESSION_ALIVE, keep.done())
+            keepAirSession("LiveAiSession", interaction)
         }
+    }
+
+    /** KeepWearableAirSessionAlive; a Display also gets the interaction it belongs to. */
+    private suspend fun keepAirSession(reason: String, id: String) {
+        val keep = ThriftWriter().str(1, reason).i32(2, AIR_SESSION_MS).i32(3, nonce.getAndIncrement())
+        if (display()) keep.str(4, id)
+        host.event(EV_KEEP_AIR_SESSION_ALIVE, keep.done())
     }
 
     /** The glasses ended it, or the link went: stop listening and close the camera. */
@@ -208,10 +219,10 @@ internal class LiveAi(
     }
 
     private companion object {
-        const val SERVER_HOST = "prod.facebookvirtualassistant.com"
         const val PAYLOAD_AUDIO = 1
         const val PAYLOAD_VIDEO = 2
         const val KEEPALIVE_MS = 5_000L
+        const val AIR_SESSION_MS = 20_000
         // An utterance that starts this soon after the last one ends continues the same question.
         const val JOIN_MS = 1_500L
 

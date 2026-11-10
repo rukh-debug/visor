@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- INTERNET: the Meta login during setup, the glasses' socket on Wi-Fi Direct, and the model, which may be a
          plain-HTTP server on the local network (hence cleartext allowed). -->
-    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -37,16 +37,26 @@
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-    <!-- The phone's speech recogniser requires it, though Visor hands it the glasses' microphone, never the phone's. -->
+    <!-- The glasses' microphone for the assistant and the custom wake word; the phone's while the Meta AI mic is held. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
     <uses-feature android:name="android.software.companion_device_setup" android:required="false" />
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
-    <!-- The settings the phone app fills in: the default SMS app and the media apps on this phone. Also the map and
-         music apps the assistant opens. -->
+    <!-- Speech recognisers and voices, and the SMS, media, map and music apps the glasses use. -->
     <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <!-- VDK apps that a voice phrase starts. -->
+        <intent>
+            <action android:name="com.macedonga.visor.kit.action.VOICE" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.SENDTO" />
             <data android:scheme="smsto" />
@@ -86,16 +96,14 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Visor"
-        android:usesCleartextTraffic="true"
-        android:windowSoftInputMode="adjustResize">
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|uiMode|locale|layoutDirection|density|fontScale|keyboard|keyboardHidden|navigation"
             android:exported="true"
-            android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
-            android:theme="@style/Theme.Visor">
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -155,6 +163,34 @@
                 <action android:name="com.macedonga.visor.action.IMPORT_MEDIA" />
             </intent-filter>
         </receiver>
+
+        <!-- The VDK, the Visor Development Kit: apps bind this, and get what the person grants them. -->
+        <service
+            android:name=".outside.KitService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.macedonga.visor.kit.action.BIND" />
+            </intent-filter>
+        </service>
+
+        <!-- The VDK's consent screen, over the app that asks. -->
+        <activity
+            android:name=".dat.ToolkitActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity
+            android:name=".outside.KitConsentActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="com.macedonga.visor.kit.action.REQUEST_SCOPES" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
         <!-- The Live view's frames for an app holding developer mode's token. -->
         <service

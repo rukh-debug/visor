@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
+import kotlinx.coroutines.flow.update
 import org.json.JSONObject
 
 /** How the assistant answers. The key stays in this app's private storage. */
@@ -21,9 +22,16 @@ data class AssistantConfig(
     val webSearch: Boolean = false,
     // Let a visual question use the glasses' camera.
     val vision: Boolean = true,
-    // Answers in the glasses' own voice, the one that reads notifications; off, the phone's voice streamed to them.
-    val glassesVoice: Boolean = true,
-    // No spoken answer when every tool the model used did what was asked, such as music that now plays (#48).
+    // Let a partner-language voice command take a photo; it turns on the glasses' Robusta switch, not Developer mode.
+    val voicePhotos: Boolean = false,
+    // Who says the answers: the glasses' own voice, the phone's engine streamed to them, or a cloud service.
+    val tts: TtsPath = TtsPath.GLASSES,
+    // The cloud speech service, OpenAI compatible; the key stays out of backups like the model's.
+    val ttsBaseUrl: String = "https://api.openai.com/v1",
+    val ttsApiKey: String = "",
+    val ttsModel: String = "",
+    val ttsVoice: String = "",
+    // No spoken answer when every tool the model used did what was asked, such as music that now plays.
     val quietAfterActions: Boolean = false,
     // The language the wearer speaks, as a BCP 47 tag, when the glasses have no pack for it; empty, the glasses' own.
     // The phone then hears every question, the model answers in it, and the phone's voice speaks.
@@ -44,9 +52,24 @@ data class AssistantConfig(
     val assistantPhrase: String = "",
     // The phrase counts anywhere in the request, not only at its start.
     val assistantAnywhere: Boolean = false,
+    // The ChatGPT account signed in for the ChatGPT provider, by its email; empty when signed out.
+    val chatGpt: String = "",
 ) {
-    /** What a set keeps: everything on the Meta AI page but whether it answers at all and the set tools themselves. */
-    fun kept() = copy(enabled = AssistantConfig().enabled, modelSet = "", listSetsTool = false, useSetTool = false, assistantPhrase = "", assistantAnywhere = false)
+    /** A model can answer: a service needs its key or sign-in, an OpenAI-compatible server may need neither. */
+    val hasModel: Boolean get() = when (provider) {
+        Provider.OPENAI_COMPATIBLE -> true
+        Provider.CHATGPT -> chatGpt.isNotEmpty()
+        else -> apiKey.isNotBlank()
+    }
+
+    /** What a set keeps: everything on the Meta AI page but whether it answers at all, the set tools and the ChatGPT sign-in. */
+    fun kept() = copy(enabled = AssistantConfig().enabled, modelSet = "", listSetsTool = false, useSetTool = false, assistantPhrase = "", assistantAnywhere = false, chatGpt = "")
+
+    /** The API address: the service's own, or the one typed in for an OpenAI-compatible server. */
+    val api: String get() = if (provider == Provider.OPENAI_COMPATIBLE) baseUrl else provider.api
+
+    /** The model asked: the one chosen, or the provider's own default. */
+    val answerModel: String get() = model.ifBlank { provider.defaultModel }
 }
 
 /** One integration as a profile keeps it: on or off, and the tools turned off. */
@@ -58,15 +81,16 @@ data class McpChoice(val on: Boolean, val off: Set<String> = emptySet())
  * profile from before profiles kept them.
  */
 data class ModelSet(val name: String, val about: String, val settings: AssistantConfig, val mcp: Map<String, McpChoice>? = null) {
-    fun into(c: AssistantConfig) = settings.copy(enabled = c.enabled, modelSet = name, listSetsTool = c.listSetsTool, useSetTool = c.useSetTool, assistantPhrase = c.assistantPhrase, assistantAnywhere = c.assistantAnywhere)
+    fun into(c: AssistantConfig) = settings.copy(enabled = c.enabled, modelSet = name, listSetsTool = c.listSetsTool, useSetTool = c.useSetTool, assistantPhrase = c.assistantPhrase, assistantAnywhere = c.assistantAnywhere, chatGpt = c.chatGpt)
 
     /** As kept on the phone, or in a backup without the key. */
     fun json(key: Boolean = true): JSONObject = settings.let { s ->
         JSONObject().put("name", name).put("about", about).put("provider", s.provider.name).put("baseUrl", s.baseUrl)
             .put("model", s.model).put("linesModel", s.linesModel).put("webSearch", s.webSearch).put("vision", s.vision)
-            .put("glassesVoice", s.glassesVoice).put("speechLanguage", s.speechLanguage).put("instructions", s.instructions).put("memoryMinutes", s.memoryMinutes)
+            .put("voicePhotos", s.voicePhotos).put("tts", s.tts.name).put("ttsBaseUrl", s.ttsBaseUrl).put("ttsModel", s.ttsModel).put("ttsVoice", s.ttsVoice)
+            .put("quietAfterActions", s.quietAfterActions).put("speechLanguage", s.speechLanguage).put("instructions", s.instructions).put("memoryMinutes", s.memoryMinutes)
             .put("answerWaitSeconds", s.answerWaitSeconds).put("toolsInText", s.toolsInText)
-            .apply { if (key) put("apiKey", s.apiKey) }
+            .apply { if (key) put("apiKey", s.apiKey).put("ttsApiKey", s.ttsApiKey) }
             .apply {
                 mcp?.let { m ->
                     put("mcp", JSONObject().apply { m.forEach { (url, c) -> put(url, JSONObject().put("on", c.on).put("off", JSONArray(c.off.sorted()))) } })
@@ -92,7 +116,15 @@ data class ModelSet(val name: String, val about: String, val settings: Assistant
                     linesModel = text("linesModel", "lines_model", ""),
                     webSearch = o.optBoolean("webSearch", rest.webSearch),
                     vision = o.optBoolean("vision", rest.vision),
-                    glassesVoice = o.optBoolean("glassesVoice", rest.glassesVoice),
+                    voicePhotos = o.optBoolean("voicePhotos", rest.voicePhotos),
+                    // Sets from before the cloud voice kept a boolean for the glasses' voice.
+                    tts = o.optString("tts").takeIf { it.isNotEmpty() }?.let { runCatching { TtsPath.valueOf(it) }.getOrNull() }
+                        ?: if (o.has("glassesVoice")) (if (o.optBoolean("glassesVoice")) TtsPath.GLASSES else TtsPath.PHONE) else rest.tts,
+                    ttsBaseUrl = o.optString("ttsBaseUrl", rest.ttsBaseUrl),
+                    ttsApiKey = o.optString("ttsApiKey", ""),
+                    ttsModel = o.optString("ttsModel", rest.ttsModel),
+                    ttsVoice = o.optString("ttsVoice", rest.ttsVoice),
+                    quietAfterActions = o.optBoolean("quietAfterActions", rest.quietAfterActions),
                     speechLanguage = o.optString("speechLanguage", rest.speechLanguage),
                     instructions = o.optString("instructions", rest.instructions),
                     memoryMinutes = o.optInt("memoryMinutes", rest.memoryMinutes),
@@ -117,7 +149,10 @@ interface SetBook {
     fun use(name: String)
 }
 
-/** Languages the wearer can speak that the glasses have no pack for, heard and spoken by the phone (issue #38). */
+/** Who says the answer out loud. */
+enum class TtsPath { GLASSES, PHONE, CLOUD }
+
+/** Languages the wearer can speak that the glasses have no pack for, heard and spoken by the phone. */
 val SPEECH_LANGUAGES = listOf(
     "ru-RU", "uk-UA", "pl-PL", "cs-CZ", "ro-RO", "hu-HU", "el-GR", "sv-SE", "da-DK", "nb-NO", "fi-FI",
     "he-IL", "ar-SA", "vi-VN", "id-ID", "th-TH",
@@ -133,7 +168,7 @@ val ANSWER_WAIT_RANGE = 10..59
 val MEMORY_WINDOWS = listOf(5, 10, 20, 30)
 val MEMORY_WINDOW_RANGE = 1..1440
 
-class AssistantConfigStore(context: Context, private val mcp: McpStore) : FieldBook, SetBook {
+class AssistantConfigStore(context: Context, private val mcp: McpStore) : SetBook {
 
     private val prefs = context.getSharedPreferences("assistant", Context.MODE_PRIVATE)
 
@@ -143,21 +178,6 @@ class AssistantConfigStore(context: Context, private val mcp: McpStore) : FieldB
     private val _sets = MutableStateFlow(loadSets())
     override val sets: StateFlow<List<ModelSet>> = _sets.asStateFlow()
 
-    init {
-        // There is always a set in use: the first one is whatever was set up before sets existed.
-        val c = _config.value
-        if (_sets.value.none { it.name == c.modelSet }) {
-            val first = _sets.value.firstOrNull()
-            if (first != null) update { first.into(it) } else {
-                val name = c.modelSet.ifBlank { firstName(c) }
-                keepSets(listOf(ModelSet.of(name, "", c)))
-                update { it.copy(modelSet = name) }
-            }
-        }
-        // Integrations were the same for every profile before; each profile starts with them as they are.
-        fillMcp()
-        mcp.onChange = ::mcpChanged
-    }
 
     /** What the integrations are now, as a profile keeps them. */
     private fun mcpNow(): Map<String, McpChoice> = mcp.servers.value.associate { it.url to McpChoice(it.enabled, it.off) }
@@ -228,24 +248,92 @@ class AssistantConfigStore(context: Context, private val mcp: McpStore) : FieldB
     /** Sets from a backup, keys left as they are here: a new name is added, a known one keeps its key. */
     fun restoreSets(sets: List<ModelSet>) {
         val here = _sets.value.associateBy { it.name }
-        keepSets(_sets.value.filter { s -> sets.none { it.name == s.name } } + sets.map { it.copy(settings = it.settings.copy(apiKey = here[it.name]?.settings?.apiKey.orEmpty())) })
+        keepSets(_sets.value.filter { s -> sets.none { it.name == s.name } } + sets.map { it.copy(settings = it.settings.copy(apiKey = here[it.name]?.settings?.apiKey.orEmpty(), ttsApiKey = here[it.name]?.settings?.ttsApiKey.orEmpty())) })
         fillMcp()
     }
 
-    override fun fields(key: String): Fields? = runCatching {
+    private val _sessionVoices = MutableStateFlow(prefs.getStringSet(SESSION_VOICES, null).orEmpty().toSet())
+    /** Voices the glasses spoke session turns in, where the phone speaks. */
+    val sessionVoices: StateFlow<Set<String>> = _sessionVoices.asStateFlow()
+
+    fun markSessionVoice(voice: String) = setSessionVoices { it + voice }
+
+    /** A plain turn in [voice]: the glasses speak it again, as after Visor turned their session path off. */
+    fun forgetSessionVoice(voice: String) = setSessionVoices { it - voice }
+
+    private fun setSessionVoices(change: (Set<String>) -> Set<String>) {
+        _sessionVoices.update(change)
+        prefs.edit().putStringSet(SESSION_VOICES, _sessionVoices.value).apply()
+    }
+
+    /** The [Fields] found for an address and model, kept until either changes. */
+    fun fields(key: String): Fields? = runCatching {
         JSONObject(prefs.getString(FIELDS, null) ?: return null).optJSONObject(key)
             ?.let { Fields(it.getBoolean("reasoning_off"), it.getBoolean("completion_tokens"), it.optBoolean("thinks")) }
     }.getOrNull()
 
-    override fun keep(key: String, fields: Fields) {
+    fun keep(key: String, fields: Fields) {
         val all = runCatching { JSONObject(prefs.getString(FIELDS, null) ?: "{}") }.getOrDefault(JSONObject())
         all.put(key, JSONObject().put("reasoning_off", fields.reasoningOff).put("completion_tokens", fields.completionTokens).put("thinks", fields.thinks))
         prefs.edit().putString(FIELDS, all.toString()).apply()
     }
 
+    private val _noSearch = MutableStateFlow(prefs.getStringSet(NO_SEARCH, null).orEmpty().toSet())
+    /** The provider and model pairs that refused a web search, so their answers go without it. */
+    val noSearch: StateFlow<Set<String>> = _noSearch.asStateFlow()
+
+    // After every field above: update() reads them.
+    init {
+        // There is always a set in use: the first one is whatever was set up before sets existed.
+        val c = _config.value
+        if (_sets.value.none { it.name == c.modelSet }) {
+            val first = _sets.value.firstOrNull()
+            if (first != null) update { first.into(it) } else {
+                val name = c.modelSet.ifBlank { firstName(c) }
+                keepSets(listOf(ModelSet.of(name, "", c)))
+                update { it.copy(modelSet = name) }
+            }
+        }
+        // Integrations were the same for every profile before; each profile starts with them as they are.
+        fillMcp()
+        mcp.onChange = ::mcpChanged
+    }
+
+    fun cannotSearch(c: AssistantConfig): Boolean = searchKey(c) in _noSearch.value
+
+    fun markCannotSearch(c: AssistantConfig) = setNoSearch(_noSearch.value + searchKey(c))
+
+    private fun setNoSearch(keys: Set<String>) {
+        _noSearch.value = keys
+        prefs.edit().putStringSet(NO_SEARCH, keys).apply()
+    }
+
+    /**
+     * Another provider, with the key and models it had last time; the ones left keep theirs for the way back. A
+     * ChatGPT sign-in stays with ChatGPT.
+     */
+    fun switchProvider(to: Provider) {
+        val c = _config.value
+        if (c.provider == to) return
+        val slots = runCatching { JSONObject(prefs.getString(SLOTS, null) ?: "{}") }.getOrDefault(JSONObject())
+        slots.put(c.provider.name, JSONObject().put("key", c.apiKey).put("model", c.model).put("lines", c.linesModel))
+        prefs.edit().putString(SLOTS, slots.toString()).apply()
+        val slot = slots.optJSONObject(to.name)
+        update {
+            it.copy(
+                provider = to,
+                apiKey = slot?.optString("key").orEmpty(),
+                model = slot?.optString("model").orEmpty(),
+                linesModel = slot?.optString("lines").orEmpty(),
+            )
+        }
+    }
+
     fun update(change: (AssistantConfig) -> AssistantConfig) {
         val before = _config.value
         val next = change(before)
+        // Turned on again, search is tried again with every model.
+        if (next.webSearch && !before.webSearch && _noSearch.value.isNotEmpty()) setNoSearch(emptySet())
         // What a server took holds for the address and models it was found with.
         val moved = next.provider != before.provider || next.baseUrl != before.baseUrl || next.model != before.model ||
             next.linesModel != before.linesModel
@@ -259,7 +347,12 @@ class AssistantConfigStore(context: Context, private val mcp: McpStore) : FieldB
             .putString("base_url", next.baseUrl)
             .putBoolean("web_search", next.webSearch)
             .putBoolean("vision", next.vision)
-            .putBoolean("glasses_voice", next.glassesVoice)
+            .putBoolean("voice_photos", next.voicePhotos)
+            .putString("tts", next.tts.name)
+            .putString("tts_base_url", next.ttsBaseUrl)
+            .putString("tts_api_key", next.ttsApiKey)
+            .putString("tts_model", next.ttsModel)
+            .putString("tts_voice", next.ttsVoice)
             .putBoolean("quiet_after_actions", next.quietAfterActions)
             .putString("speech_language", next.speechLanguage)
             .putString("instructions", next.instructions)
@@ -271,6 +364,7 @@ class AssistantConfigStore(context: Context, private val mcp: McpStore) : FieldB
             .putBoolean("tool_use_set", next.useSetTool)
             .putString("assistant_phrase", next.assistantPhrase)
             .putBoolean("assistant_anywhere", next.assistantAnywhere)
+            .putString("chatgpt", next.chatGpt)
             .apply()
         _config.value = next
         // Edits on the page go back into the set they came from.
@@ -282,16 +376,26 @@ class AssistantConfigStore(context: Context, private val mcp: McpStore) : FieldB
 
     private fun load(): AssistantConfig {
         val d = AssistantConfig()
+        val baseUrl = prefs.getString("base_url", d.baseUrl).orEmpty()
+        val provider = runCatching { Provider.valueOf(prefs.getString("provider", null).orEmpty()) }.getOrDefault(d.provider)
         return AssistantConfig(
             enabled = prefs.getBoolean("enabled", d.enabled),
-            provider = runCatching { Provider.valueOf(prefs.getString("provider", null).orEmpty()) }.getOrDefault(d.provider),
+            // A known service's address typed in by hand is that service's preset.
+            provider = if (provider == Provider.OPENAI_COMPATIBLE) Provider.at(baseUrl) ?: provider else provider,
             apiKey = prefs.getString("api_key", d.apiKey).orEmpty(),
             model = prefs.getString("model", d.model).orEmpty(),
             linesModel = prefs.getString("lines_model", d.linesModel).orEmpty(),
-            baseUrl = prefs.getString("base_url", d.baseUrl).orEmpty(),
+            baseUrl = baseUrl,
             webSearch = prefs.getBoolean("web_search", d.webSearch),
             vision = prefs.getBoolean("vision", d.vision),
-            glassesVoice = prefs.getBoolean("glasses_voice", d.glassesVoice),
+            voicePhotos = prefs.getBoolean("voice_photos", d.voicePhotos),
+            // Before "tts", a boolean chose the glasses' voice or the phone's.
+            tts = prefs.getString("tts", null)?.let { runCatching { TtsPath.valueOf(it) }.getOrNull() }
+                ?: if (prefs.getBoolean("glasses_voice", true)) TtsPath.GLASSES else TtsPath.PHONE,
+            ttsBaseUrl = prefs.getString("tts_base_url", d.ttsBaseUrl).orEmpty(),
+            ttsApiKey = prefs.getString("tts_api_key", d.ttsApiKey).orEmpty(),
+            ttsModel = prefs.getString("tts_model", d.ttsModel).orEmpty(),
+            ttsVoice = prefs.getString("tts_voice", d.ttsVoice).orEmpty(),
             quietAfterActions = prefs.getBoolean("quiet_after_actions", d.quietAfterActions),
             speechLanguage = prefs.getString("speech_language", d.speechLanguage).orEmpty(),
             instructions = prefs.getString("instructions", d.instructions).orEmpty(),
@@ -303,11 +407,12 @@ class AssistantConfigStore(context: Context, private val mcp: McpStore) : FieldB
             useSetTool = prefs.getBoolean("tool_use_set", d.useSetTool),
             assistantPhrase = prefs.getString("assistant_phrase", d.assistantPhrase).orEmpty(),
             assistantAnywhere = prefs.getBoolean("assistant_anywhere", d.assistantAnywhere),
+            chatGpt = prefs.getString("chatgpt", d.chatGpt).orEmpty(),
         )
     }
 
     private fun firstName(c: AssistantConfig): String =
-        if (c.provider == Provider.CLAUDE) "Claude" else c.baseUrl.substringAfter("://").substringBefore('/').substringBefore(':').ifBlank { "Default" }
+        if (c.provider != Provider.OPENAI_COMPATIBLE) c.provider.title else c.baseUrl.substringAfter("://").substringBefore('/').substringBefore(':').ifBlank { "Default" }
 
     private fun keepSets(sets: List<ModelSet>) {
         prefs.edit().putString(SETS, JSONArray(sets.map { it.json() }).toString()).apply()
@@ -323,5 +428,10 @@ class AssistantConfigStore(context: Context, private val mcp: McpStore) : FieldB
     private companion object {
         const val FIELDS = "server_fields"
         const val SETS = "model_sets"
+        const val SESSION_VOICES = "session_voices"
+        const val NO_SEARCH = "no_search"
+        const val SLOTS = "provider_slots"
+
+        fun searchKey(c: AssistantConfig) = "${c.provider.name} ${c.answerModel}"
     }
 }

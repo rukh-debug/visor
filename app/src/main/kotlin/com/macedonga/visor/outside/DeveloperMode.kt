@@ -10,11 +10,10 @@ import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.SystemClock
 import android.provider.MediaStore
-import java.security.MessageDigest
-import java.security.SecureRandom
-import java.util.Base64
 import com.macedonga.visor.R
 import com.macedonga.visor.connection.GlassesService
+import com.macedonga.visor.core.assistant.AssistantConfigStore
+import com.macedonga.visor.core.connection.CAMERA_VIDEO_STARTED
 import com.macedonga.visor.core.connection.GlassesConnection
 import com.macedonga.visor.core.connection.Shutter
 import com.macedonga.visor.core.connection.VideoKind
@@ -25,7 +24,11 @@ import com.macedonga.visor.core.media.MediaImport
 import com.macedonga.visor.core.session.LinkState
 import com.macedonga.visor.log.EventLog
 import com.macedonga.visor.outside.DeveloperIntents as I
+import com.macedonga.visor.kit.protocol.Scope
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Base64
 import java.util.Collections
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -45,10 +48,14 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
+/** Meta's Robusta demo switch: with it on, the glasses take a photo for the phone. */
+const val ROBUSTA = "wearables_robusta.demo_enabled"
+
 /**
- * Developer mode: other apps work the glasses' camera and import through [DeveloperIntents] and hear of each capture.
- * The glasses take a photo for the phone only with Meta's Robusta demo switch on, so the mode turns it on and, when
- * it ends, off.
+ * Developer mode: other apps work the glasses' camera and import through [DeveloperIntents] and hear of each capture,
+ * and the VDK's adb socket opens. The glasses take a photo for the phone only with Meta's Robusta demo switch on, so
+ * the mode turns it on and, when it ends, off. Voice photos and VDK apps holding the camera scope need the same
+ * switch, so it stays on while any of them wants it.
  */
 @Singleton
 class DeveloperMode @Inject constructor(
@@ -58,6 +65,10 @@ class DeveloperMode @Inject constructor(
     private val media: MediaImport,
     private val shutter: Shutter,
     private val log: EventLog,
+    private val assistant: AssistantConfigStore,
+    private val kitGrants: KitGrants,
+    private val networkClients: NetworkClients,
+    private val webApps: KitWebApps,
 ) {
     private val prefs = context.getSharedPreferences("developer", Context.MODE_PRIVATE)
     private val _on = MutableStateFlow(prefs.getBoolean(ON, false))
@@ -74,6 +85,9 @@ class DeveloperMode @Inject constructor(
 
     // Imports already said to have failed, until the next import starts.
     private val failed = Collections.synchronizedSet(HashSet<String>())
+
+    // The video shortcut reads Stop recording.
+    @Volatile private var stopShown = false
 
     init {
         open(_on.value)
@@ -123,10 +137,17 @@ class DeveloperMode @Inject constructor(
             shortcuts.addDynamicShortcuts(
                 listOf(
                     shortcut(PHOTO, R.string.shutter_take_photo, R.mipmap.ic_shortcut_photo, I.TAKE_PHOTO),
-                    shortcut(VIDEO, R.string.shutter_record_video, R.mipmap.ic_shortcut_video, I.TOGGLE_VIDEO),
+                    videoShortcut(),
                 ),
             )
         }
+    }
+
+    /** The video shortcut toggles: it says Stop recording while a video runs. */
+    private fun videoShortcut(): ShortcutInfo {
+        stopShown = connection.state.value.device?.camera == CAMERA_VIDEO_STARTED
+        val label = if (stopShown) R.string.live_stop_recording else R.string.shutter_record_video
+        return shortcut(VIDEO, label, R.mipmap.ic_shortcut_video, I.TOGGLE_VIDEO)
     }
 
     private fun shortcut(id: String, label: Int, icon: Int, action: String) = ShortcutInfo.Builder(context, id)
@@ -181,7 +202,13 @@ class DeveloperMode @Inject constructor(
             var upAt = 0L
             val ready = connection.state.map { it.link == LinkState.READY }.distinctUntilChanged()
                 .onEach { if (it) upAt = SystemClock.elapsedRealtime() }
-            combine(ready, on) { ready, on -> on.takeIf { ready } }.collectLatest { on ->
+            val photos = assistant.config.map { it.voicePhotos }.distinctUntilChanged()
+            // Apps, computers and web apps alike: a phone-asked photo needs the switch for each of them.
+            val kitCamera = combine(kitGrants.all, networkClients.all, webApps.grants) { apps, clients, web ->
+                apps.keys.any { Scope.CAMERA in kitGrants.scopesOf(it) } || clients.any { Scope.CAMERA in it.scopes } ||
+                    web.values.any { Scope.CAMERA in it }
+            }.distinctUntilChanged()
+            combine(ready, on, photos, kitCamera) { ready, on, photos, kit -> (on || photos || kit).takeIf { ready } }.collectLatest { on ->
                 on ?: return@collectLatest
                 // A link just up settles first; the configuration comes in a bug report.
                 delay(upAt + SETTLE_MS - SystemClock.elapsedRealtime())
@@ -192,12 +219,15 @@ class DeveloperMode @Inject constructor(
             var was: String? = null
             connection.state.map { it.device?.camera }.distinctUntilChanged().collect { camera ->
                 val event = when {
-                    camera == VIDEO_RUNNING -> I.VIDEO_STARTED
+                    camera == CAMERA_VIDEO_STARTED -> I.VIDEO_STARTED.takeIf { was != CAMERA_VIDEO_STARTED }
                     // No state at all is a link gone, not a video ended.
-                    was == VIDEO_RUNNING && camera != null -> I.VIDEO_STOPPED
+                    was == CAMERA_VIDEO_STARTED && camera != null -> I.VIDEO_STOPPED
                     else -> null
                 }
-                was = camera
+                if (camera != null) was = camera
+                if (camera != null && on.value && (camera == CAMERA_VIDEO_STARTED) != stopShown) {
+                    runCatching { context.getSystemService(ShortcutManager::class.java)?.updateShortcuts(listOf(videoShortcut())) }
+                }
                 if (event != null && on.value) tell(event, I.EXTRA_TIME to System.currentTimeMillis())
             }
         }
@@ -278,19 +308,14 @@ class DeveloperMode @Inject constructor(
         if (config.state.value.params.isEmpty()) {
             // A switch Visor never read, it never turned on.
             if (!on) return
-            // The configuration comes in a bug report of several megabytes: never on top of photos to bring over.
-            combine(media.importing, media.captures) { importing, captures -> !importing && captures.none { it.isNew && it.isMedia } }
-                .first { it }
-            log.add("Developer mode: reading the glasses' configuration once")
-            config.read()
-            withTimeoutOrNull(READ_MS) { config.state.first { it.params.isNotEmpty() } } ?: return
+            if (!config.readOnce(READ_MS) { log.add("Developer mode: reading the glasses' configuration once") }) return
         }
-        val state = config.state.first { it.busy.isEmpty() }
+        val state = config.state.first { it.busy == null }
         if (ROBUSTA !in state.params || (state.values[ROBUSTA] == true) == on) return
         log.add(if (on) "Developer mode: letting the glasses take photos for the phone" else "Developer mode: the glasses no longer take photos for the phone")
         config.apply(mapOf(ROBUSTA to on))
-        withTimeoutOrNull(WRITE_MS) { config.state.first { s -> s.busy.isEmpty() && s.values[ROBUSTA] == on } }
-            ?: log.add("Developer mode: the glasses did not take the change: ${config.state.value.note}")
+        withTimeoutOrNull(WRITE_MS) { config.state.first { s -> s.busy == null && s.values[ROBUSTA] == on } }
+            ?: log.add("Developer mode: the glasses did not take the change: ${config.state.value.note?.why.orEmpty()}")
     }
 
     private companion object {
@@ -300,8 +325,6 @@ class DeveloperMode @Inject constructor(
         const val PHOTO = "shutter_photo"
         const val VIDEO = "shutter_video"
         val SHORTCUTS = listOf(PHOTO, VIDEO)
-        const val ROBUSTA = "wearables_robusta.demo_enabled"
-        const val VIDEO_RUNNING = "CAPTURE_VIDEO_STARTED"
         const val NOT_FOUND = "NOT_FOUND"
         const val WAKE_MS = 20_000L
         const val LIST_MS = 15_000L

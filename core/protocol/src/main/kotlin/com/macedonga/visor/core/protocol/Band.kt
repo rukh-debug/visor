@@ -1,8 +1,8 @@
 package com.macedonga.visor.core.protocol
 
 /**
- * The Neural Band's RPC on svc52822, as Meta AI 294.1 speaks it (com.oculus.wearableinputservice). A request goes out
- * as DataX type 0x0314, whose low byte is the band's REQUEST; what the band sends carries its own type in the low byte.
+ * The Neural Band's RPC on svc52822. A request goes out as DataX type 0x0314, whose low byte is the band's REQUEST;
+ * what the band sends carries its own type in the low byte.
  */
 object Band {
     const val REQUEST_TYPE = 0x0314
@@ -45,13 +45,71 @@ object Band {
      * type (field 36) with priority 90 (35) and the use case "GenericC50" (37); before it the one bool, enableGestures (3).
      */
     fun gestureStreams(seq: Int, on: Boolean, protocol: Int?): ByteArray {
-        val map = protocol == null || protocol >= 2
-        val entries = if (map) GESTURE_STREAMS.fold(ByteArray(0)) { out, type ->
+        val sendMap = protocol == null || protocol >= 2
+        val sendBool = protocol == null || protocol < 2
+        val bool = if (sendBool) Wire.fieldVarint(3, if (on) 1 else 0) else ByteArray(0)
+        val entries = if (!sendMap) ByteArray(0) else GESTURE_STREAMS.fold(ByteArray(0)) { out, type ->
             out + Wire.fieldBytes(36, Wire.fieldVarint(1, type.toLong()) + Wire.fieldVarint(2, if (on) 1 else 0))
-        } + Wire.fieldVarint(35, PRIORITY_GENERIC_C50) + Wire.fieldBytes(37, "GenericC50".encodeToByteArray()) else ByteArray(0)
-        val bool = if (!map || protocol == null) Wire.fieldVarint(3, if (on) 1 else 0) else ByteArray(0)
+        } + Wire.fieldVarint(35, PRIORITY_GENERIC_C50) + Wire.fieldString(37, "GenericC50")
         return request(seq, 4, bool + entries)
     }
+
+    /**
+     * The gestures and the wrist's motion in one StreamControlReq, so neither turns the other off. From protocol 2 the
+     * map (36) names every gesture type and the IMU types (IMU_GYRO 15, IMU_ACCEL 16, IMU_MAG 17, IMU_QUAT 18); before
+     * it the bools enableGestures 3, enableAcc 5, enableGyro 6, enableMag 7 and enableQuat 8, where one left out reads
+     * false. [motion] null leaves the IMU out, as [gestureStreams] does.
+     */
+    fun streams(seq: Int, gestures: Boolean, motion: Boolean?, protocol: Int?): ByteArray {
+        if (motion == null) return gestureStreams(seq, gestures, protocol)
+        val sendMap = protocol == null || protocol >= 2
+        val sendBool = protocol == null || protocol < 2
+        val bools = if (!sendBool) ByteArray(0) else {
+            Wire.fieldVarint(3, if (gestures) 1 else 0) +
+                MOTION_BOOLS.fold(ByteArray(0)) { out, field -> out + Wire.fieldVarint(field, if (motion) 1 else 0) }
+        }
+        val entries = if (!sendMap) ByteArray(0) else {
+            val gestureEntries = GESTURE_STREAMS.fold(ByteArray(0)) { out, type -> out + entry(type, gestures) }
+            gestureEntries + MOTION_STREAMS.fold(ByteArray(0)) { out, type -> out + entry(type, motion) } +
+                Wire.fieldVarint(35, PRIORITY_GENERIC_C50) + Wire.fieldString(37, "GenericC50")
+        }
+        return request(seq, 4, bools + entries)
+    }
+
+    private fun entry(type: Int, on: Boolean) = Wire.fieldBytes(36, Wire.fieldVarint(1, type.toLong()) + Wire.fieldVarint(2, if (on) 1 else 0))
+
+    /** One reading of the band's IMU: [values] x, y, z, and w for the orientation, in SI units. */
+    class Motion(val type: Int, val seq: Int, val timestamp: Long, val values: FloatArray)
+
+    fun isMotion(type: Int): Boolean = type in MOTION_STREAMS
+
+    /**
+     * EmgImu$RawImu{Gyro,Accel,Mag,Quat}Sample {1 seq, 2 timestamp, 3 channels}. Gyroscope and accelerometer channels are
+     * three little-endian int16, at 0.0012217305 rad/s and 0.0023928226 m/s² a step (the Meta app's defaults, its
+     * C22926C9g); the magnetometer's are int16 as the band reports them (scale 1); the orientation is four little-endian
+     * floats, x, y, z, w (EmgQuatOrientationData).
+     */
+    fun motion(type: Int, payload: ByteArray): Motion {
+        val f = Wire.parse(payload)
+        val channels = java.nio.ByteBuffer.wrap(f.bytes(3)).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        val values = when (type) {
+            IMU_QUAT -> FloatArray(4) { channels.getFloat() }
+            else -> {
+                val scale = when (type) {
+                    IMU_GYRO -> GYRO_RAD_S
+                    IMU_ACCEL -> ACCEL_M_S2
+                    else -> 1f
+                }
+                FloatArray(3) { channels.getShort() * scale }
+            }
+        }
+        return Motion(type, f.varint(1).toInt(), f.varint(2), values)
+    }
+
+    const val IMU_GYRO = 15
+    const val IMU_ACCEL = 16
+    const val IMU_MAG = 17
+    const val IMU_QUAT = 18
 
     /** RpcRequest {1: seq, 11: GestureAckReq {1 the gesture's seq, 2 source MWA_ANDROID, 3 topology DIRECT}}, one per gesture. */
     fun gestureAck(seq: Int, gesture: Int): ByteArray =
@@ -61,27 +119,11 @@ object Band {
     fun vibrate(seq: Int, millis: Long, amplitude: Int): ByteArray =
         request(seq, 17, Wire.fieldBytes(1, Wire.fieldVarint(1, millis) + Wire.fieldVarint(3, amplitude.toLong())))
 
-    /** RpcRequest {1: seq, 17: HapticsReq {3: StopReq {}}}. */
-    fun stopHaptics(seq: Int): ByteArray = request(seq, 17, Wire.fieldBytes(3, ByteArray(0)))
-
-    // The firmware update: Ota on RpcRequest 7 (answers in RpcResponse 8), the bulk file transfer on 9 (answers in 10).
+    // The band's OTA service on RpcRequest 7 (answers in RpcResponse 8). Visor only reads its versions.
     const val OTA_ITEM_FIRMWARE = 0
     // The build the band has received and holds ready, not yet running.
     const val OTA_ITEM_LATEST_FIRMWARE = 1
     const val OTA_ITEM_ML_MODEL = 2
-    const val OTA_UNAVAILABLE = 0
-    const val OTA_IN_PROGRESS = 2
-    const val OTA_UPDATE_READY = 3
-    // otaUnavailableReason: the battery is too low.
-    const val OTA_POWER_LIMITATION = 3
-    // deviceState: the band runs its recovery firmware.
-    const val OTA_DEVICE_RECOVERY = 2
-    const val OTA_RESULT_OK = 0
-    const val TRANSFER_OTA = 1
-    const val TRANSFER_NEW = 1
-    const val TRANSFER_PARTIAL = 2
-    const val TRANSFER_FULL = 3
-    const val CHUNK_BYTES = 950
 
     /**
      * The band's OTA device info: the running, received and ML versions by item, the KEK id, the device state, the OTA
@@ -89,47 +131,8 @@ object Band {
      */
     class OtaInfo(val firmware: Long, val latest: Long, val ml: Long, val kek: Long, val device: Int, val state: Int, val unavailable: Int)
 
-    /** BulkDataTransferResp: the info answer, a chunk's ack or a nack. */
-    sealed interface Bulk {
-        class Info(val state: Int, val memory: Long, val resume: Long, val transferId: Int) : Bulk
-        class Ack(val transferId: Int, val offset: Long) : Bulk
-        class Nack(val transferId: Int, val reason: String) : Bulk
-    }
-
     /** RpcRequest {1: seq, 7: OtaReq {1: DeviceInfoRequest {}}}. */
     fun otaDeviceInfo(seq: Int): ByteArray = ota(seq, 1, ByteArray(0))
-
-    /** OtaReq {2: StartItemUpdateRequest {1: ItemInfo, 2: size, 3: skipVersionCheck, 4: kekVersion}}. */
-    fun otaStartItem(seq: Int, itemType: Int, version: Long, size: Long, skipVersionCheck: Boolean = false): ByteArray =
-        ota(
-            seq, 2,
-            Wire.fieldBytes(1, itemInfo(itemType, version)) + Wire.fieldVarint(2, size) +
-                (if (skipVersionCheck) Wire.fieldVarint(3, 1) else ByteArray(0)) + Wire.fieldVarint(4, 0),
-        )
-
-    /** OtaReq {3: VerifyItemUpdateRequest {1: ItemInfo}}. */
-    fun otaVerifyItem(seq: Int, itemType: Int, version: Long): ByteArray = ota(seq, 3, Wire.fieldBytes(1, itemInfo(itemType, version)))
-
-    /** OtaReq {4: CommitUpdateRequest {}}: one commit for all items, the reboot not deferred. */
-    fun otaCommit(seq: Int): ByteArray = ota(seq, 4, ByteArray(0))
-
-    /** OtaReq {5: AbortUpdateRequest {}}. */
-    fun otaAbort(seq: Int): ByteArray = ota(seq, 5, ByteArray(0))
-
-    /** OtaReq {6: InstallKEKRequest {1: kekVersion, 3: encryptedKek}}; the key type is 0, the default, so not sent. */
-    fun otaInstallKek(seq: Int, kekVersion: Long, encryptedKek: ByteArray): ByteArray =
-        ota(seq, 6, Wire.fieldVarint(1, kekVersion) + Wire.fieldBytes(3, encryptedKek))
-
-    /** RpcRequest {1: seq, 9: BulkDataTransferReq {1: InfoRequest {1 MD5, 2 size, 3 type, 4 transferID}}}. */
-    fun bulkInfo(seq: Int, md5: ByteArray, size: Long, transferId: Int): ByteArray = request(
-        seq, 9,
-        Wire.fieldBytes(1, Wire.fieldBytes(1, md5) + Wire.fieldVarint(2, size) + Wire.fieldVarint(3, TRANSFER_OTA.toLong()) + Wire.fieldVarint(4, transferId.toLong())),
-    )
-
-    /** RpcRequest {1: seq, 9: BulkDataTransferReq {2: ChunkData {1 transferID, 2 chunkOffset, 3 chunkData}}}. */
-    fun bulkChunk(seq: Int, transferId: Int, offset: Long, data: ByteArray): ByteArray = request(
-        seq, 9, Wire.fieldBytes(2, Wire.fieldVarint(1, transferId.toLong()) + Wire.fieldVarint(2, offset) + Wire.fieldBytes(3, data)),
-    )
 
     /** The seq an answer echoes. */
     fun seqOf(payload: ByteArray): Int = Wire.parse(payload).varint(1).toInt()
@@ -151,31 +154,9 @@ object Band {
         )
     }
 
-    /** The result code of a GeneralResponse (1), VerifyItemUpdateResponse (3) or CommitUpdateResponse (4); null for other answers. */
-    fun otaResult(payload: ByteArray): Int? {
-        val ota = otaAnswer(payload) ?: return null
-        val field = listOf(1, 3, 4).firstOrNull { ota.has(it) } ?: return null
-        return Wire.parse(Wire.parse(ota.bytes(field)).bytes(1)).varint(1).toInt()
-    }
-
-    /** The bulk answer in an RpcResponse 10, or null for another answer. */
-    fun bulk(payload: ByteArray): Bulk? {
-        val rpc = Wire.parse(payload)
-        if (!rpc.has(10)) return null
-        val answer = Wire.parse(rpc.bytes(10))
-        return when {
-            answer.has(1) -> Wire.parse(answer.bytes(1)).let { Bulk.Info(it.varint(1).toInt(), it.varint(2), it.varint(3), it.varint(5).toInt()) }
-            answer.has(2) -> Wire.parse(answer.bytes(2)).let { Bulk.Ack(it.varint(1).toInt(), it.varint(2)) }
-            answer.has(3) -> Wire.parse(answer.bytes(3)).let { Bulk.Nack(it.varint(1).toInt(), it.bytes(2).decodeToString()) }
-            else -> null
-        }
-    }
-
     private fun otaAnswer(payload: ByteArray): Wire.Fields? = Wire.parse(payload).let { if (it.has(8)) Wire.parse(it.bytes(8)) else null }
 
     private fun ota(seq: Int, field: Int, body: ByteArray): ByteArray = request(seq, 7, Wire.fieldBytes(field, body))
-
-    private fun itemInfo(itemType: Int, version: Long): ByteArray = Wire.fieldVarint(1, itemType.toLong()) + Wire.fieldVarint(2, version)
 
     fun isGesture(type: Int): Boolean = type == 13 || type in 60..200
 
@@ -214,6 +195,10 @@ object Band {
 
     // Every gesture stream the Meta app turns on: 60-70, 100-109, 150-156 and 200.
     private val GESTURE_STREAMS = (60..70) + (100..109) + (150..156) + 200
+    private val MOTION_STREAMS = listOf(IMU_GYRO, IMU_ACCEL, IMU_MAG, IMU_QUAT)
+    private val MOTION_BOOLS = listOf(5, 6, 7, 8)
+    private const val GYRO_RAD_S = 0.0012217305f
+    private const val ACCEL_M_S2 = 0.0023928226f
     private const val PRIORITY_GENERIC_C50 = 90L
     private const val SOURCE_MWA_ANDROID = 2L
     private const val TOPOLOGY_DIRECT = 0L

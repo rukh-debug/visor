@@ -18,7 +18,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class LeaseService @Inject constructor(
-    private val log: Provider<EventLog>,
+    private val log: EventLog,
     private val wifiLink: Provider<WifiLink>,
 ) : Responder {
     // Leases the glasses hold, by lease id, so an expiry can be named in the log.
@@ -29,40 +29,31 @@ class LeaseService @Inject constructor(
         val channel = DataXConnection.mirror(message.info.channelId)
         val request = Wire.parse(message.payload)
         val id = request.bytes(1)
-        val key = id.joinToString("") { "%02x".format(it) }
+        val key = id.toHexString()
         when (message.info.messageType) {
             MT_INTERNET_REQUEST -> {
                 val type = INTERNET_TYPES.getOrElse(request.varint(2).toInt()) { "UNKNOWN" }
                 // As the Meta app does: a block is kept and not answered; any other kind is told to use the glasses' own Wi-Fi.
                 // The phone's internet still reaches the Display's apps through the tunnel (svc41108, svc41111).
                 if (type == "BLOCK") {
-                    log.get().add("Lease: the glasses blocked internet leases")
+                    log.add("Lease: the glasses blocked internet leases")
                     return
                 }
-                log.get().add("Lease: the glasses asked for internet ($type); answered: use the glasses' Wi-Fi")
+                log.add("Lease: the glasses asked for internet ($type); answered: use the glasses' Wi-Fi")
                 connection.send(channel, Wire.fieldBytes(1, id) + refusal(ERROR_USE_DEVICE_WIFI, "ERROR_CODE_USE_DEVICE_WIFI"), messageType = MT_INTERNET_RESPONSE)
             }
             MT_LINK_REQUEST -> {
-                // Field 7 is a link (2 Wi-Fi Direct, 3 SoftAP, 4 local Wi-Fi); field 6 a bandwidth (1 medium, 2 high).
-                val wifi = when {
-                    request.has(7) -> request.varint(7) in 2..4
-                    request.has(6) -> request.varint(6) >= 1
-                    else -> null
-                }
+                val wifi = wantsWifi(request)
                 val unavailable = if (wifi == true) wifiLink.get().refusal() else null
-                val reply = when {
-                    wifi == null -> Wire.fieldBytes(1, id) + refusal(ERROR_BAD_REQUEST, "Invalid Request")
-                    unavailable != null -> Wire.fieldBytes(1, id) + refusal(ERROR_WIFI_DIRECT_NOT_AVAILABLE, "Wi-Fi is not available for this link.")
-                    else -> Wire.fieldBytes(1, id)
+                val (reply, line) = when {
+                    wifi == null -> Wire.fieldBytes(1, id) + refusal(ERROR_BAD_REQUEST, "Invalid Request") to
+                        "Lease: the glasses asked for a link with no requirement; refused"
+                    unavailable != null -> Wire.fieldBytes(1, id) + refusal(ERROR_WIFI_DIRECT_NOT_AVAILABLE, "Wi-Fi is not available for this link.") to
+                        "Lease: the glasses asked for Wi-Fi; refused, $unavailable"
+                    wifi == true -> Wire.fieldBytes(1, id) to "Lease: the glasses asked for Wi-Fi; answered OK"
+                    else -> Wire.fieldBytes(1, id) to "Lease: the glasses asked for a link on Bluetooth; answered OK"
                 }
-                log.get().add(
-                    when {
-                        wifi == null -> "Lease: the glasses asked for a link with no requirement; refused"
-                        unavailable != null -> "Lease: the glasses asked for Wi-Fi; refused, $unavailable"
-                        wifi == true -> "Lease: the glasses asked for Wi-Fi; answered OK"
-                        else -> "Lease: the glasses asked for a link on Bluetooth; answered OK"
-                    },
-                )
+                log.add(line)
                 if (wifi == false) held[key] = "link"
                 connection.send(channel, reply, messageType = MT_LINK_RESPONSE)
                 // Answered on the Bluetooth session first: the move to Wi-Fi ends it.
@@ -72,15 +63,34 @@ class LeaseService @Inject constructor(
                 }
             }
             MT_LEASE_EXPIRATION -> {
-                held.remove(key)?.let { log.get().add("Lease: a $it lease ended") }
+                held.remove(key)?.let { log.add("Lease: a $it lease ended") }
                 wifiLink.get().release(key)
             }
-            else -> log.get().add("Lease: message type ${message.info.messageType} is not handled")
+            else -> log.add("Lease: message type ${message.info.messageType} is not handled")
         }
     }
 
+    /**
+     * The link a LinkLeaseRequest needs, as the Meta app's LeaseService.getLinkType reads it (294.1, bytecode): field 7
+     * names a link (0 BLE, 1 Bluetooth Classic, 2 Wi-Fi Direct, 3 SoftAP, 4 local Wi-Fi); field 6 a bandwidth, where
+     * only high (2) is Wi-Fi, medium (1) is Bluetooth Classic and low (0) is no link; fields 4 and 5 a throughput, Wi-Fi
+     * from 1000 and 600 up. True for Wi-Fi, false for a Bluetooth link, null for none. The toolkit app asks for medium
+     * at every session: read as Wi-Fi, it moved the session and reset every channel on the glasses.
+     */
+    private fun wantsWifi(request: Wire.Fields): Boolean? = when {
+        request.has(7) -> request.varint(7) in 2..4
+        request.has(6) -> when (request.varint(6)) {
+            1L -> false
+            2L -> true
+            else -> null
+        }
+        request.has(4) -> request.varint(4) >= 1000
+        request.has(5) -> request.varint(5) >= 600
+        else -> null
+    }
+
     private fun refusal(code: Int, text: String): ByteArray =
-        Wire.fieldBytes(2, Wire.fieldVarint(1, code.toLong()) + Wire.fieldBytes(2, text.encodeToByteArray()))
+        Wire.fieldBytes(2, Wire.fieldVarint(1, code.toLong()) + Wire.fieldString(2, text))
 
     companion object {
         const val SVC = 41107
